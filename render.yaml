@@ -4,7 +4,7 @@ services:
     env: python
     plan: starter
     buildCommand: ./build.sh
-    startCommand: PYTHONPATH=/opt/render/project/src gunicorn -c gunicorn/prod.py app.main:app
+    startCommand: ./start_app.sh
     envVars:
       - key: DATABASE_URL
         value: postgresql://supervity_bank_cc_user:NsDeBXq4iyl1mqfY57GJB8y0QQ4aFsWm@dpg-d34eftruibrs73af3ntg-a/supervity_bank_cc
