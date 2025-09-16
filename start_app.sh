@@ -2,9 +2,17 @@
 # Startup script for Render deployment with debugging
 
 echo "🚀 Starting Bank Command Center..."
-echo "Current working directory: $(pwd)"
+echo "Initial working directory: $(pwd)"
+
+# Ensure we're in the project root directory
+cd /opt/render/project || {
+    echo "❌ Failed to change to project directory"
+    exit 1
+}
+
+echo "Project root directory: $(pwd)"
 echo "Python path: $PYTHONPATH"
-echo "Contents of current directory:"
+echo "Contents of project root:"
 ls -la
 
 echo "Contents of src directory:"
@@ -27,8 +35,10 @@ export PYTHONPATH="/opt/render/project/src:$PYTHONPATH"
 echo "Updated PYTHONPATH: $PYTHONPATH"
 
 echo "Testing Python import..."
-cd /opt/render/project/src
-python -c "
+# Make sure we're in the project root
+cd /opt/render/project
+# Test the import with the correct PYTHONPATH
+PYTHONPATH="/opt/render/project/src" python -c "
 try:
     from app.main import app
     print('✅ FastAPI app import successful')
@@ -40,6 +50,8 @@ except Exception as e:
 "
 
 echo "Starting gunicorn with verbose logging..."
-cd /opt/render/project
-# Start gunicorn with more verbose output
+echo "Current directory: $(pwd)"
+echo "Gunicorn config file exists: $(ls -la gunicorn/prod.py 2>/dev/null || echo 'NOT FOUND')"
+
+# Start gunicorn with more verbose output from the project root
 exec gunicorn -c gunicorn/prod.py app.main:app --log-level debug --access-logfile - --error-logfile -
