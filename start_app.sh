@@ -26,5 +26,20 @@ echo "Setting PYTHONPATH and starting gunicorn..."
 export PYTHONPATH="/opt/render/project/src:$PYTHONPATH"
 echo "Updated PYTHONPATH: $PYTHONPATH"
 
-# Start gunicorn
-exec gunicorn -c gunicorn/prod.py app.main:app
+echo "Testing Python import..."
+cd /opt/render/project/src
+python -c "
+try:
+    from app.main import app
+    print('✅ FastAPI app import successful')
+    print(f'App type: {type(app)}')
+except Exception as e:
+    print(f'❌ FastAPI app import failed: {e}')
+    import traceback
+    traceback.print_exc()
+"
+
+echo "Starting gunicorn with verbose logging..."
+cd /opt/render/project
+# Start gunicorn with more verbose output
+exec gunicorn -c gunicorn/prod.py app.main:app --log-level debug --access-logfile - --error-logfile -
