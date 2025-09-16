@@ -1,0 +1,44 @@
+{
+  "name": "supervity-ap-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "postinstall": "node ./copy-pdf-worker.js"
+  },
+  "dependencies": {
+    "20": "^3.1.9",
+    "@radix-ui/react-tabs": "^1.1.12",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "framer-motion": "^12.19.2",
+    "lucide-react": "^0.525.0",
+    "next": "15.3.4",
+    "react": "^19.0.0",
+    "react-countup": "^6.5.3",
+    "react-dom": "^19.0.0",
+    "react-dropzone": "^14.3.8",
+    "react-hot-toast": "^2.5.2",
+    "react-markdown": "^10.1.0",
+    "react-pdf": "^10.0.1",
+    "recharts": "^3.0.2",
+    "tailwind-merge": "^3.3.1",
+    "xlsx": "^0.18.5",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.3.4",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

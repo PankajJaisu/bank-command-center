@@ -1,32 +1,52 @@
 services:
-  - type: web
-    name: collection-command-center
-    env: python
+  # PostgreSQL Database
+  - type: pserv
+    name: supervity-bank-cc-postgres
+    env: docker
     plan: starter
-    buildCommand: ./build.sh
-    startCommand: ./start_app.sh
+    databases:
+      - name: supervity_bank_cc
+        user: supervity_bank_cc_user
+
+  # Backend API Service
+  - type: web
+    name: supervity-backend
+    env: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     envVars:
       - key: DATABASE_URL
-        value: postgresql://supervity_bank_cc_user:NsDeBXq4iyl1mqfY57GJB8y0QQ4aFsWm@dpg-d34eftruibrs73af3ntg-a/supervity_bank_cc
+        fromDatabase:
+          name: supervity-bank-cc-postgres
+          property: connectionString
+      - key: GEMINI_API_KEY
+        sync: false  # This will be set manually in Render dashboard
+      - key: CORS_ORIGINS
+        value: https://supervity-frontend.onrender.com
       - key: APP_ENV
         value: production
-      - key: CORS_ORIGINS
-        value: "*"
-      - key: PDF_STORAGE_PATH
-        value: "./sample_data"
-      - key: GENERATED_PDF_STORAGE_PATH
-        value: "./generated_documents"
-      - key: PYTHONPATH
-        value: "/opt/render/project/src"
       - key: PORT
-        value: "8000"
-      - key: WEB_CONCURRENCY
-        value: "1"
-      - key: WORKER_CONNECTIONS
-        value: "1000"
-      - key: GUNICORN_TIMEOUT
-        value: "120"
-      - key: GUNICORN_LOG_LEVEL
-        value: "info"
-      - key: GEMINI_API_KEY
-        sync: false
+        value: 8000
+      - key: PDF_STORAGE_PATH
+        value: ./sample_data
+      - key: GENERATED_PDF_STORAGE_PATH
+        value: ./generated_documents
+    healthCheckPath: /api/health
+    buildCommand: echo "Using Docker build"
+    startCommand: gunicorn -c gunicorn/prod.py app.main:app
+
+  # Frontend Service
+  - type: web
+    name: supervity-frontend
+    env: docker
+    plan: starter
+    dockerfilePath: ./supervity-ap-frontend/Dockerfile
+    dockerContext: ./supervity-ap-frontend
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: https://supervity-backend.onrender.com/api
+      - key: NODE_ENV
+        value: production
+    buildCommand: npm run build
+    startCommand: node server.js
