@@ -25,6 +25,6 @@ python -m alembic upgrade head
 
 # Initialize configuration data
 echo "⚙️ Initializing configuration data..."
-python scripts/init_config_data.py
+python scripts/init_config_data_simple.py
 
 echo "✅ Build completed successfully!"

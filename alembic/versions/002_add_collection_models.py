@@ -101,9 +101,24 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_data_integrity_alerts_id'), 'data_integrity_alerts', ['id'], unique=False)
 
+    # Create automation_rules table
+    op.create_table('automation_rules',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('name', sa.String(length=200), nullable=False),
+        sa.Column('conditions', postgresql.JSON(astext_type=sa.Text()), nullable=True),
+        sa.Column('actions', postgresql.JSON(astext_type=sa.Text()), nullable=True),
+        sa.Column('created_at', sa.DateTime(), nullable=True),
+        sa.Column('updated_at', sa.DateTime(), nullable=True),
+        sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_automation_rules_id'), 'automation_rules', ['id'], unique=False)
+
 
 def downgrade() -> None:
     # Drop tables in reverse order
+    op.drop_index(op.f('ix_automation_rules_id'), table_name='automation_rules')
+    op.drop_table('automation_rules')
+    
     op.drop_index(op.f('ix_data_integrity_alerts_id'), table_name='data_integrity_alerts')
     op.drop_table('data_integrity_alerts')
     
