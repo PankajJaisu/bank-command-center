@@ -1,6 +1,6 @@
 databases:
   - name: supervity-bank-cc-postgres
-    plan: starter
+    plan: free
 
 services:
   # Backend API Service
