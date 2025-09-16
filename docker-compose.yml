@@ -1,0 +1,58 @@
+# docker-compose.yml
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: supervity_postgres
+    environment:
+      POSTGRES_USER: supervity_user
+      POSTGRES_PASSWORD: supervity_password
+      POSTGRES_DB: supervity_ap_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    restart: unless-stopped
+
+  backend:
+    container_name: supervity_backend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: gunicorn -c gunicorn/dev.py app.main:app
+    volumes:
+      - ./src:/app/src
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://supervity_user:supervity_password@postgres:5432/supervity_ap_db
+      - CORS_ORIGINS=http://localhost:3000
+      - GEMINI_API_KEY=${GEMINI_API_KEY} # Pass through from your host environment
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  frontend:
+    container_name: supervity_frontend
+    build:
+      context: ./supervity-ap-frontend
+      dockerfile: Dockerfile
+      # --- MODIFICATION START ---
+      args:
+        # For Docker deployment, frontend container talks to backend container
+        # The browser still accesses backend via localhost:8000 due to port mapping
+        - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
+      # --- MODIFICATION END ---
+    command: node server.js
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      # Override the API URL for the runtime environment
+      # This tells the client-side code to use localhost:8000 (which is correct for browser)
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data: 
