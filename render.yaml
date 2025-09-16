@@ -3,11 +3,12 @@ services:
   - type: pserv
     name: supervity-bank-cc-postgres
     plan: starter
+    runtime: postgresql
 
   # Backend API Service
   - type: web
     name: supervity-backend
-    env: docker
+    runtime: docker
     plan: starter
     dockerfilePath: ./Dockerfile
     dockerContext: .
@@ -29,13 +30,11 @@ services:
       - key: GENERATED_PDF_STORAGE_PATH
         value: ./generated_documents
     healthCheckPath: /api/health
-    buildCommand: echo "Using Docker build"
-    startCommand: gunicorn -c gunicorn/prod.py app.main:app
 
   # Frontend Service
   - type: web
     name: supervity-frontend
-    env: docker
+    runtime: docker
     plan: starter
     dockerfilePath: ./supervity-ap-frontend/Dockerfile
     dockerContext: ./supervity-ap-frontend
@@ -44,5 +43,3 @@ services:
         value: https://supervity-backend.onrender.com/api
       - key: NODE_ENV
         value: production
-    buildCommand: npm run build
-    startCommand: node server.js
