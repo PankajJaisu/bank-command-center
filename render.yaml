@@ -2,11 +2,9 @@ services:
   # PostgreSQL Database
   - type: pserv
     name: supervity-bank-cc-postgres
-    env: docker
     plan: starter
-    databases:
-      - name: supervity_bank_cc
-        user: supervity_bank_cc_user
+    databaseName: supervity_bank_cc
+    databaseUser: supervity_bank_cc_user
 
   # Backend API Service
   - type: web
