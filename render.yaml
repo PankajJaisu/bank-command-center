@@ -38,6 +38,6 @@ services:
     dockerContext: ./supervity-ap-frontend
     envVars:
       - key: NEXT_PUBLIC_API_BASE_URL
-        value: https://supervity-backend.onrender.com/api
+        value: https://supervity-backend-jt84.onrender.com/api
       - key: NODE_ENV
         value: production
