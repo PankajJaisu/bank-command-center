@@ -3,7 +3,6 @@ services:
   - type: pserv
     name: supervity-bank-cc-postgres
     plan: starter
-    runtime: postgresql
 
   # Backend API Service
   - type: web
