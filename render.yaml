@@ -1,9 +1,8 @@
-services:
-  # PostgreSQL Database
-  - type: pserv
-    name: supervity-bank-cc-postgres
+databases:
+  - name: supervity-bank-cc-postgres
     plan: starter
 
+services:
   # Backend API Service
   - type: web
     name: supervity-backend
