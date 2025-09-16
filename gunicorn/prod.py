@@ -2,7 +2,13 @@
 """Gunicorn *production* config file"""
 
 import os
+import sys
 import multiprocessing
+
+# Ensure the src directory is in the Python path
+src_path = "/opt/render/project/src"
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
 
 # FastAPI ASGI application path
 wsgi_app = "app.main:app"
