@@ -3,8 +3,6 @@ services:
   - type: pserv
     name: supervity-bank-cc-postgres
     plan: starter
-    databaseName: supervity_bank_cc
-    databaseUser: supervity_bank_cc_user
 
   # Backend API Service
   - type: web
