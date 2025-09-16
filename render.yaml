@@ -18,7 +18,7 @@ services:
       - key: GEMINI_API_KEY
         sync: false  # This will be set manually in Render dashboard
       - key: CORS_ORIGINS
-        value: https://supervity-frontend.onrender.com
+        value: "*"
       - key: APP_ENV
         value: production
       - key: PORT
