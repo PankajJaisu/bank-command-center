@@ -677,7 +677,7 @@ export default function CustomerProfilePage() {
     loadCustomerData();
   }, [loadCustomerData]);
 
-  // Auto-navigate to matched invoices when Overall Risk Assessment is GOOD
+  // Show notification for GOOD risk assessment customers
   useEffect(() => {
     if (!isLoading && customerData) {
       const assessment = calculateRiskAssessment(
@@ -687,14 +687,10 @@ export default function CustomerProfilePage() {
       );
       
       if (assessment.level === 'GOOD') {
-        // Show notification and redirect to invoice explorer with matched filter
-        toast.success(`Customer ${customerData.customerName} has GOOD risk assessment. Redirecting to matched invoices...`);
-        setTimeout(() => {
-          router.push('/invoice-explorer?status=matched');
-        }, 2000);
+        toast.success(`Customer ${customerData.customerName} has GOOD risk assessment. Account is in good standing.`);
       }
     }
-  }, [isLoading, customerData, router]);
+  }, [isLoading, customerData]);
 
   // Get available actions based on risk level
   const getAvailableActions = (riskLevel: string) => {

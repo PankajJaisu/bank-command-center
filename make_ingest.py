@@ -1,21 +1,129 @@
-# make_ingest.py
+# make_ingest.py - Collection Management System Digest Generator
 
 import sys
 import subprocess
 
 
-def generate_digest_cli(source, output_file="digest.txt", exclude_exts=None):
+def generate_digest_cli(source, output_file="digest.txt", exclude_exts=None, is_frontend=False):
     cmd = ["gitingest", source, "-o", output_file]
 
-    # Comprehensive exclusions for common non-essential files and directories
-    exclusions = [
-        # Project-specific directories
-        "ai_ap_manager",
-        "ai_ap_manager/*",
-        "invoices",
+    # Frontend-specific exclusions when processing frontend folder
+    if is_frontend:
+        exclusions = [
+            # Build and cache directories
+            "node_modules",
+            "node_modules/*",
+            ".next",
+            ".next/*",
+            "out",
+            "build",
+            "dist",
+            ".cache",
+            # Generated files
+            "package-lock.json",
+            "yarn.lock",
+            "pnpm-lock.yaml",
+            ".tsbuildinfo",
+            "*.tsbuildinfo",
+            # Test and coverage
+            "coverage",
+            "__tests__/coverage",
+            ".nyc_output",
+            # Static assets
+            "public/images",
+            "public/fonts",
+            "public/*.ico",
+            "public/*.png",
+            "public/*.svg",
+            # IDE and system files
+            ".vscode",
+            ".idea",
+            ".DS_Store",
+            # Storybook
+            "storybook-static",
+            ".storybook-build",
+            # Environment files
+            ".env",
+            ".env.*",
+            # Temporary files
+            "*.log",
+            "npm-debug.log*",
+            "yarn-debug.log*",
+            "yarn-error.log*"
+        ]
+    else:
+        # Default exclusions for non-frontend directories
+        exclusions = [
+        # Project-specific directories (removed AP-specific references)
         "processed_documents",
         "sample_data",
+        "sample_data/*",
+        "sample_data/**",
+        # Keep collection-related sample data but exclude some files
+        "sample_data/pdf_templates.py",
         "README.md",
+        # Generated documents and output files
+        "generated_documents",
+        "generated_documents/*",
+        "generated_documents/**",
+        "*.pdf",
+        "REGEN_*.pdf",
+        # Database export files
+        "database_export",
+        "database_export/*",
+        "database_export/**",
+        "database_export/csv",
+        "database_export/csv/*",
+        "database_export/json",
+        "database_export/json/*",
+        "collection_database_master.csv",
+        "collection_database_master.json",
+        "database_summary.txt",
+        "export_summary.json",
+        "alembic",
+        "alembic/*",
+        "alembic/**",
+        "alembic.ini",
+        "alembic.ini/*",
+        "alembic.ini/**",
+        "scripts/",
+        "scripts/alembic/*",
+        "scripts/alembic/**",
+        "scripts/alembic.ini",
+        "scripts/alembic.ini/*",
+        "scripts/alembic.ini/**",
+        "alembic.ini.py",
+        # Token usage and monitoring files
+        "token_usage",
+        "token_usage/*",
+        "token_usage/**",
+        "job_*.json",
+        "jobs_summary.json",
+        # Script conversion and processing files
+        "scripts/converted",
+        "scripts/converted/*",
+        "scripts/converted/**",
+        "scripts/to_convert",
+        "scripts/to_convert/*",
+        "scripts/to_convert/**",
+        "scripts/to_convert/processed",
+        "scripts/to_convert/processed/*",
+        "scripts/to_convert/processed/**",
+        # Utility and setup scripts (non-core business logic)
+        "scripts/data_generator.py",
+        "scripts/file_converter.py",
+        "scripts/verify_test_data.py",
+        "export_database.py",
+        "make_ingest.py",
+        "run_fresh.py",
+        "run.py",
+        "start_gunicorn.sh",
+        # Database files
+        "*.sqlite3",
+        "*.sqlite",
+        "*.db",
+        "collection_data.db",
+        "chroma.sqlite3",
         # Python-related
         "__pycache__",
         "__pycache__/*",
@@ -31,28 +139,18 @@ def generate_digest_cli(source, output_file="digest.txt", exclude_exts=None):
         ".venv",
         "env",
         ".env",
-        "reference/*",
         # Poetry and dependency management
         "poetry.lock",
         "*/poetry.lock",
-        "ai_ap_manager/*/poetry.lock",
-        # Database and vector store files (ai_ap_manager specific)
+        # Database and vector store files
         "chroma_db",
         "chroma_db/*",
         "*/chroma_db",
         "*/chroma_db/*",
         "**/chroma_db/**",
-        "ai_ap_manager/*/chroma_db",
-        "ai_ap_manager/*/chroma_db/*",
-        "*.sqlite3",
-        "*.sqlite",
-        "*.db",
-        "chroma.sqlite3",
         # Binary data files (vector store related)
         "*.bin",
         "data_level0.bin",
-        "ai_ap_manager/",
-        "ai_ap_manager/*",
         "header.bin",
         "length.bin",
         "link_lists.bin",
@@ -73,7 +171,6 @@ def generate_digest_cli(source, output_file="digest.txt", exclude_exts=None):
         "*.temp",
         "logs",
         # Documentation and media files
-        "*.pdf",
         "*.doc",
         "*.docx",
         "*.xls",
@@ -85,15 +182,16 @@ def generate_digest_cli(source, output_file="digest.txt", exclude_exts=None):
         "*.jpeg",
         "*.gif",
         "DOCKER_GUIDE.md",
+        "FEATURES.md",
         "*.svg",
         "*.ico",
+        "favicon.png",
+        "favicon.ico",
         # IDE and editor files
         ".vscode",
         ".idea",
         "*.swp",
         "*.swo",
-        "database_export",
-        "database_export/*",
         # Node.js and React/Next.js related - more comprehensive exclusions
         "node_modules",
         "node_modules/*",
@@ -107,8 +205,10 @@ def generate_digest_cli(source, output_file="digest.txt", exclude_exts=None):
         "supervity-ap-frontend/pnpm-lock.yaml",
         "supervity-ap-frontend/.next",
         "supervity-ap-frontend/.next/*",
+        "supervity-ap-frontend/.next/**",
         "supervity-ap-frontend/public",
         "supervity-ap-frontend/public/*",
+        "supervity-ap-frontend/public/**",
         "supervity-ap-frontend/.nuxt",
         "supervity-ap-frontend/.nuxt/*",
         "supervity-ap-frontend/out",
@@ -127,6 +227,8 @@ def generate_digest_cli(source, output_file="digest.txt", exclude_exts=None):
         "supervity-ap-frontend/.swc",
         "supervity-ap-frontend/.tsbuildinfo",
         "supervity-ap-frontend/*.tsbuildinfo",
+        "supervity-ap-frontend/copy-pdf-worker.js",
+        "supervity-ap-frontend/next-env.d.ts",
         "npm-debug.log",
         "yarn-error.log",
         "package-lock.json",
@@ -134,6 +236,7 @@ def generate_digest_cli(source, output_file="digest.txt", exclude_exts=None):
         "pnpm-lock.yaml",
         ".next",
         ".next/*",
+        ".next/**",
         ".nuxt",
         ".nuxt/*",
         "out",
@@ -152,17 +255,64 @@ def generate_digest_cli(source, output_file="digest.txt", exclude_exts=None):
         ".swc",
         ".tsbuildinfo",
         "*.tsbuildinfo",
+        # Frontend build artifacts and static files
+        "build-manifest.json",
+        "app-build-manifest.json",
+        "fallback-build-manifest.json",
+        "next-minimal-server.js.nft.json",
+        "next-server.js.nft.json",
+        "export-marker.json",
+        "images-manifest.json",
+        "prerender-manifest.json",
+        "routes-manifest.json",
+        "required-server-files.json",
+        "app-path-routes-manifest.json",
+        "react-loadable-manifest.json",
+        "BUILD_ID",
+        "trace",
+        "transform.js",
+        "transform.js.map",
+        "pdf.worker.mjs",
+        "pdf.worker.min.mjs",
+        "logo.svg",
+        "logo-dark.svg",
         # Archives
         "*.zip",
         "*.tar",
         "*.tar.gz",
         "*.rar",
         "*.7z",
+        # CSV and data files (non-core)
+        "*.csv",
+        # Removed AP-specific files, keeping collection-related exclusions
+        "contract_*.pdf",
+        "loan_*.pdf",
     ]
 
     if exclude_exts:
         # Format extensions as "*.ext" and add to exclusions
         exclusions.extend(f"*{ext}" for ext in exclude_exts)
+
+    if is_frontend:
+        # Include only relevant frontend code files
+        include_patterns = [
+            "*.tsx",
+            "*.ts",
+            "*.jsx",
+            "*.js",
+            "*.css",
+            "*.scss",
+            "*.sass",
+            "*.less",
+            "*.module.css",
+            "*.module.scss",
+            "*.module.sass",
+            "*.module.less",
+            "*.json",  # For configuration files
+            "*.html",
+            "*.md"  # For documentation
+        ]
+        cmd += ["-i", ",".join(include_patterns)]
 
     if exclusions:
         patterns = ",".join(exclusions)
@@ -180,20 +330,29 @@ def generate_digest_cli(source, output_file="digest.txt", exclude_exts=None):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(
-            "Usage: python make_ingest.py <path_or_url> [output_file] [excluded_exts...]"
+            "Usage: python make_ingest.py <path_or_url> [output_file] [--frontend] [excluded_exts...]"
         )
         sys.exit(1)
 
     source = sys.argv[1]
-
-    # Determine if second argument is an output file or an extension
     output_file = "digest.txt"
     exclude_exts = []
+    is_frontend = False
 
-    if len(sys.argv) >= 3 and sys.argv[2].startswith(".") is False:
-        output_file = sys.argv[2]
-        exclude_exts = sys.argv[3:]
-    else:
-        exclude_exts = sys.argv[2:]
+    # Process arguments
+    args = sys.argv[2:]
+    while args:
+        arg = args.pop(0)
+        if arg == "--frontend":
+            is_frontend = True
+        elif arg.startswith("."):
+            exclude_exts.append(arg)
+        else:
+            output_file = arg
 
-    generate_digest_cli(source, output_file, exclude_exts)
+    # Check if the source path contains 'frontend' and automatically set is_frontend
+    if not is_frontend and ("frontend" in source.lower() or "front-end" in source.lower()):
+        is_frontend = True
+        print("Detected frontend directory, using frontend-specific processing...")
+
+    generate_digest_cli(source, output_file, exclude_exts, is_frontend)

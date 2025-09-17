@@ -172,7 +172,7 @@ def generate_content_with_retry(client, model, contents, config, use_streaming=T
 
 def create_tool_definitions():
     """Create tool definitions for Gemini function calling"""
-    return [types.Tool(function_declarations=tools.ALL_TOOL_DECLARATIONS)]
+    return [types.Tool(function_declarations=tools.COLLECTION_TOOLS)]
 
 
 def format_ui_response(
@@ -191,7 +191,7 @@ def format_ui_response(
 
 def invoke_agent(
     user_message: str,
-    current_invoice_id: Optional[str] = None,
+    current_customer_id: Optional[str] = None,
     history: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Invokes the Gemini API to respond to the user's message and optionally call tools."""
@@ -287,17 +287,15 @@ def invoke_agent(
             tool_name = function_call.name
             tool_args = dict(function_call.args) if function_call.args else {}
 
-            if tool_name not in tools.AVAILABLE_TOOLS:
+            if tool_name not in tools.TOOL_FUNCTIONS:
                 return format_ui_response(
                     f"Error: The AI requested an unknown tool: {tool_name}"
                 )
 
             print(f"🤖 Agent wants to call tool '{tool_name}' with args: {tool_args}")
 
-            tool_function = tools.AVAILABLE_TOOLS[tool_name]
+            tool_function = tools.TOOL_FUNCTIONS[tool_name]
             tool_args["db"] = db
-            if tool_name == "draft_vendor_communication":
-                tool_args["client"] = client
 
             original_tool_result = tool_function(**tool_args)
 

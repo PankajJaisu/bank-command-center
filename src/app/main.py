@@ -9,23 +9,18 @@ from app.db.session import create_db_and_tables, SessionLocal
 from app.db import models
 from app.modules.auth.password_service import get_password_hash
 
-# --- ADD AI AP MANAGER TO IMPORTS ---
+# --- COLLECTION MANAGER IMPORTS ---
 from app.api.endpoints import (
-    documents,
     dashboard,
-    invoices,
     copilot,
     learning,
     notifications,
     configuration,
-    workflow,
-    payments,
     auth,
     users,
     collection,
 )
-from app.core.monitoring_service import run_monitoring_cycle, check_held_invoices
-from app.modules.automation import executor as automation_executor
+# Remove AP-specific monitoring and automation
 
 # --- ADDED: Import the new learning engine ---
 from app.modules.learning import engine as learning_engine
@@ -65,7 +60,7 @@ def ensure_application_directories():
 def create_roles(db):
     """Create default user roles if they don't exist."""
     logger.info("👥 Checking for user roles...")
-    roles_to_create = ["admin", "ap_processor"]
+    roles_to_create = ["admin", "collection_agent"]
     existing_roles = {role.name for role in db.query(models.Role).all()}
     created_count = 0
     for role_name in roles_to_create:
@@ -109,10 +104,10 @@ def create_default_demo_user(db):
     logger.info("👤 Checking for default demo user...")
     demo_email = "demo@supervity.ai"
     processor_role = (
-        db.query(models.Role).filter(models.Role.name == "ap_processor").first()
+        db.query(models.Role).filter(models.Role.name == "collection_agent").first()
     )
     if not processor_role:
-        logger.warning("  -> AP Processor role not found. Cannot create demo user.")
+        logger.warning("  -> Collection Agent role not found. Cannot create demo user.")
         return
     if not db.query(models.User).filter(models.User.email == demo_email).first():
         new_demo_user = models.User(
@@ -126,49 +121,33 @@ def create_default_demo_user(db):
         db.add(new_demo_user)
         db.flush()
 
-        # Create permission policies for demo user
+        # Create permission policies for demo user (collection-focused)
         policies = [
             models.PermissionPolicy(
                 user_id=new_demo_user.id,
-                name="Access High-Value Acme Invoices",
+                name="Access High-Risk Customers",
                 conditions={
                     "logical_operator": "AND",
                     "conditions": [
                         {
-                            "field": "vendor_name",
+                            "field": "cbs_risk_level",
                             "operator": "equals",
-                            "value": "Acme Manufacturing",
+                            "value": "red",
                         },
-                        {"field": "grand_total", "operator": ">", "value": 1000},
                     ],
                 },
                 is_active=True,
             ),
             models.PermissionPolicy(
                 user_id=new_demo_user.id,
-                name="Access Global Supplies",
+                name="Access Medium-Risk Customers",
                 conditions={
                     "logical_operator": "AND",
                     "conditions": [
                         {
-                            "field": "vendor_name",
+                            "field": "cbs_risk_level",
                             "operator": "equals",
-                            "value": "Global Supplies Co",
-                        }
-                    ],
-                },
-                is_active=True,
-            ),
-            models.PermissionPolicy(
-                user_id=new_demo_user.id,
-                name="Access Premier Components",
-                conditions={
-                    "logical_operator": "AND",
-                    "conditions": [
-                        {
-                            "field": "vendor_name",
-                            "operator": "equals",
-                            "value": "Premier Components Inc",
+                            "value": "amber",
                         }
                     ],
                 },
@@ -182,230 +161,22 @@ def create_default_demo_user(db):
         logger.info("  -> Default demo user already exists.")
 
 
-def create_sample_automation_rules(db):
-    """Create sample automation rules if they don't exist."""
-    logger.info("🤖 Creating sample automation rules...")
-    try:
-        if db.query(models.AutomationRule).count() > 0:
-            logger.info("⚠️ Found existing automation rules. Skipping creation.")
-            return
-        sample_rules = [
-            {
-                "rule_name": "Auto-approve small value invoices",
-                "vendor_name": None,
-                "conditions": {
-                    "logical_operator": "AND",
-                    "conditions": [
-                        {"field": "grand_total", "operator": "<", "value": 250}
-                    ],
-                },
-                "action": "approve",
-                "is_active": 1,
-                "source": "system_default",
-            },
-            {
-                "rule_name": "Flag large invoices for manual review",
-                "vendor_name": None,
-                "conditions": {
-                    "logical_operator": "AND",
-                    "conditions": [
-                        {"field": "grand_total", "operator": ">=", "value": 10000}
-                    ],
-                },
-                "action": "flag_for_audit",
-                "is_active": 1,
-                "source": "system_default",
-            },
-        ]
-        for rule_data in sample_rules:
-            db.add(models.AutomationRule(**rule_data))
-        db.commit()
-        logger.info(f"✅ Created {len(sample_rules)} automation rules.")
-    except Exception as e:
-        logger.error(f"❌ Error creating automation rules: {e}")
-        db.rollback()
+# Removed AP-specific automation rules
 
 
-def create_extraction_field_configurations(db):
-    """Create default extraction field configurations if they don't exist."""
-    logger.info("📝 Creating default extraction field configurations...")
-    try:
-        if db.query(models.ExtractionFieldConfiguration).count() > 0:
-            logger.info("⚠️ Found existing field configurations. Skipping creation.")
-            return
-        all_fields = {
-            models.DocumentTypeEnum.Invoice: [
-                ("invoice_id", "Invoice Number", True, True),
-                ("vendor_name", "Vendor Name", True, True),
-                ("invoice_date", "Invoice Date", True, True),
-                ("grand_total", "Grand Total", True, True),
-                ("due_date", "Due Date", False, True),
-                ("subtotal", "Subtotal", False, True),
-                ("tax", "Tax", False, True),
-                ("related_po_numbers", "PO Number(s)", False, True),
-            ],
-            models.DocumentTypeEnum.PurchaseOrder: [
-                ("po_number", "PO Number", True, True),
-                ("vendor_name", "Vendor Name", True, True),
-                ("order_date", "Order Date", True, True),
-                ("grand_total", "Grand Total", False, True, True),
-                ("subtotal", "Subtotal", False, True, True),
-                ("tax", "Tax", False, True, True),
-            ],
-            models.DocumentTypeEnum.GoodsReceiptNote: [
-                ("grn_number", "GRN Number", True, True),
-                ("po_number", "Related PO Number", True, True),
-                ("received_date", "Received Date", False, True),
-            ],
-        }
-        for doc_type, fields in all_fields.items():
-            for field_info in fields:
-                field_name, display_name, is_essential, is_enabled = field_info[:4]
-                is_editable = field_info[4] if len(field_info) > 4 else False
-                db.add(
-                    models.ExtractionFieldConfiguration(
-                        document_type=doc_type,
-                        field_name=field_name,
-                        display_name=display_name,
-                        is_essential=is_essential,
-                        is_enabled=is_enabled,
-                        is_editable=is_editable,
-                    )
-                )
-        db.commit()
-        logger.info("✅ Created default field configurations.")
-    except Exception as e:
-        logger.error(f"❌ Error creating field configurations: {e}")
-        db.rollback()
+# Removed AP-specific extraction field configurations
 
 
-def create_sample_slas(db):
-    """Create sample SLA policies if they don't exist."""
-    logger.info("🕒 Creating sample SLA policies...")
-    try:
-        if db.query(models.SLA).count() > 0:
-            logger.info("⚠️ Found existing SLA policies. Skipping creation.")
-            return
-        sample_slas = [
-            {
-                "name": "Standard Review Time",
-                "description": "Invoices in 'Needs Review' should be actioned within 2 business days.",
-                "conditions": {"status": "needs_review"},
-                "threshold_hours": 48,
-                "is_active": True,
-            },
-            {
-                "name": "High-Value Invoice Priority",
-                "description": "Invoices over $5,000 should be processed within 1 business day.",
-                "conditions": {"grand_total": {"operator": ">", "value": 5000}},
-                "threshold_hours": 24,
-                "is_active": True,
-            },
-        ]
-        for sla_data in sample_slas:
-            db.add(models.SLA(**sla_data))
-        db.commit()
-        logger.info(f"✅ Created {len(sample_slas)} sample SLA policies.")
-    except Exception as e:
-        logger.error(f"❌ Error creating sample SLAs: {e}")
-        db.rollback()
+# Removed AP-specific SLA policies
 
 
-def create_sample_learned_heuristics(db):
-    """Create sample learned heuristics for the demo."""
-    logger.info("🧠 Creating sample learned heuristics for demo...")
-    if db.query(models.LearnedHeuristic).count() > 0:
-        logger.info("⚠️ Found existing heuristics. Skipping creation.")
-        return
-
-    heuristics = [
-        models.LearnedHeuristic(
-            vendor_name="Global Supplies Co",
-            exception_type="PriceMismatchException",
-            learned_condition={"max_variance_percent": 8},
-            resolution_action="matched",
-            trigger_count=15,
-            confidence_score=0.94,
-        ),
-        models.LearnedHeuristic(
-            vendor_name="Acme Manufacturing",
-            exception_type="QuantityMismatchException",
-            learned_condition={"max_quantity_diff": 2},
-            resolution_action="matched",
-            trigger_count=8,
-            confidence_score=0.89,
-        ),
-        models.LearnedHeuristic(
-            vendor_name="Premier Components Inc",
-            exception_type="PriceMismatchException",
-            learned_condition={"max_variance_percent": 3},
-            resolution_action="matched",
-            trigger_count=5,
-            confidence_score=0.83,
-        ),
-    ]
-    db.add_all(heuristics)
-    db.commit()
-    logger.info(f"✅ Created {len(heuristics)} sample learned heuristics.")
+# Removed AP-specific learned heuristics
 
 
-def create_sample_action_patterns(db):
-    """Create sample user action patterns for the demo."""
-    logger.info("⚡ Creating sample process hotspots for demo...")
-    if db.query(models.UserActionPattern).count() > 0:
-        logger.info("⚠️ Found existing action patterns. Skipping creation.")
-        return
-
-    patterns = [
-        models.UserActionPattern(
-            pattern_type="MANUAL_PO_CREATION",
-            entity_name="Professional Services LLC",
-            count=12,
-            user_id=None,
-        ),
-        models.UserActionPattern(
-            pattern_type="FREQUENT_PO_EDITS",
-            entity_name="Standard Materials Corp",
-            count=8,
-            user_id=None,
-        ),
-    ]
-    db.add_all(patterns)
-    db.commit()
-    logger.info(f"✅ Created {len(patterns)} sample action patterns.")
+# Removed AP-specific action patterns
 
 
-def create_sample_learned_preferences(db):
-    """Create sample learned preferences for the demo."""
-    logger.info("💡 Creating sample learned preferences for demo...")
-    if db.query(models.LearnedPreference).count() > 0:
-        logger.info("⚠️ Found existing preferences. Skipping creation.")
-        return
-
-    admin_user = (
-        db.query(models.User).filter(models.User.email == "admin@supervity.ai").first()
-    )
-    if not admin_user:
-        logger.warning("⚠️ Admin user not found, cannot create sample preferences.")
-        return
-
-    preferences = [
-        models.LearnedPreference(
-            user_id=admin_user.id,
-            preference_type="PREFERRED_VENDOR_CONTACT",
-            context_key="Global Supplies Co",
-            preference_value="billing.dept@globalsupplies.com",
-        ),
-        models.LearnedPreference(
-            user_id=admin_user.id,
-            preference_type="DEFAULT_GL_CODE",
-            context_key="Professional Services LLC",
-            preference_value="6310-Consulting",
-        ),
-    ]
-    db.add_all(preferences)
-    db.commit()
-    logger.info(f"✅ Created {len(preferences)} sample learned preferences.")
+# Removed AP-specific learned preferences
 
 
 def initialize_startup_configuration():
@@ -420,16 +191,6 @@ def initialize_startup_configuration():
             create_default_admin(db)
             create_default_demo_user(db)
 
-            # Create sample data for demo
-            create_sample_learned_heuristics(db)
-            create_sample_action_patterns(db)
-            create_sample_learned_preferences(db)
-
-            # Create configuration data
-            create_sample_automation_rules(db)
-            create_extraction_field_configurations(db)
-            create_sample_slas(db)
-
         logger.info("=" * 50)
         logger.info("✅ STARTUP CONFIGURATION INITIALIZATION COMPLETE!")
 
@@ -441,33 +202,22 @@ def initialize_startup_configuration():
 
 # --- NEW LIFESPAN MANAGER ---
 async def recurring_background_tasks():
-    """Wrapper to run all recurring services on a schedule."""
+    """Wrapper to run collection-related background services."""
     task_logger = get_logger("app.background_tasks")
 
     while True:
         try:
-            task_logger.debug("Starting recurring background tasks cycle")
+            task_logger.debug("Starting collection background tasks cycle")
             # Use consistent session management for all services
             with SessionLocal() as db:
-                # Check for expired holds
-                check_held_invoices(db)
-
-                # Proactive Monitoring (runs every hour)
-                run_monitoring_cycle(db)
-
-                # Automation Engine (runs every 5 minutes)
-                automation_executor.run_automation_engine(db)
-
-                # --- ADDED: Run the new insight engine ---
-                # This will analyze past events to generate learnings.
+                # Run collection-specific learning engine
                 learning_engine.run_analysis_cycle(db)
-                # --- END ADDED ---
 
         except Exception as e:
             task_logger.error(
                 f"Error in recurring background tasks: {e}", exc_info=True
             )
-        # Let's run this more frequently, e.g., every 5 minutes (300 seconds)
+        # Run every 5 minutes (300 seconds)
         await asyncio.sleep(300)
 
 
@@ -516,10 +266,10 @@ async def lifespan(app: FastAPI):
 
 # --- MODIFIED APP INITIALIZATION ---
 app = FastAPI(
-    title="Supervity Proactive Loan Command Center API",  # <-- RENAMED
-    description="The backend API for the Supervity AI-powered Accounts Payable Command Center.",
-    version="2.0.0",  # Version bump for new release
-    lifespan=lifespan,  # Use the new lifespan manager
+    title="Supervity Bank Collection Management API",
+    description="The backend API for the Supervity AI-powered Bank Collection and Loan Management System.",
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
 # Configure CORS - make origins configurable for Kubernetes deployment
@@ -558,15 +308,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API routers
+# Include API routers - Collection Management focused
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/users", tags=["User Management"])
-app.include_router(documents.router, prefix="/api/documents", tags=["Documents & Jobs"])
-app.include_router(invoices.router, prefix="/api/invoices", tags=["Invoices"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(
-    copilot.router, prefix="/api/copilot", tags=["AI AP Manager"]
-)  # <-- RENAMED TAG
+    copilot.router, prefix="/api/copilot", tags=["AI Collection Manager"]
+)
 app.include_router(
     learning.router, prefix="/api/learning", tags=["Learning & Heuristics"]
 )
@@ -575,10 +323,8 @@ app.include_router(
 )
 app.include_router(
     configuration.router, prefix="/api/config", tags=["Configuration & Settings"]
-)  # <-- RENAMED TAG
-app.include_router(workflow.router, prefix="/api/workflow", tags=["Workflow & Audit"])
-app.include_router(payments.router, prefix="/api/payments", tags=["Payments"])
-app.include_router(collection.router, prefix="/api/collection", tags=["Collection Cell"])
+)
+app.include_router(collection.router, prefix="/api/collection", tags=["Collection Management"])
 
 
 @app.get("/api/health", tags=["Health Check"])
