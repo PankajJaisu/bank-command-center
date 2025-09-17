@@ -323,7 +323,7 @@ export default function CollectionCellPage() {
   const [riskLevelFilter, setRiskLevelFilter] = useState("");
   
   // Tab states
-  const [activeTab, setActiveTab] = useState<"collection" | "matched">("collection");
+  const [activeTab, setActiveTab] = useState<"collection" | "processed">("collection");
   
   // Modal states
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
@@ -355,16 +355,16 @@ export default function CollectionCellPage() {
       
       const matchesRiskLevel = !riskLevelFilter || account.riskLevel === riskLevelFilter;
       
-      // Filter by tab - matched tab shows accounts with GOOD or EXCELLENT risk assessment
+      // Filter by tab - processed tab shows accounts with GOOD or EXCELLENT risk assessment (AI-processed low priority cases)
       const assessment = calculateRiskAssessment(account.cibilScore, account.riskLevel, account.daysOverdue);
-      const isMatched = assessment.level === 'GOOD' || assessment.level === 'EXCELLENT';
+      const isProcessed = assessment.level === 'GOOD' || assessment.level === 'EXCELLENT';
       
-      if (activeTab === "matched") {
-        return matchesSearch && matchesStatus && matchesCollector && matchesOverdue && matchesRiskLevel && isMatched;
+      if (activeTab === "processed") {
+        return matchesSearch && matchesStatus && matchesCollector && matchesOverdue && matchesRiskLevel && isProcessed;
       }
       
-      // Need Review tab shows all accounts EXCEPT matched ones
-      return matchesSearch && matchesStatus && matchesCollector && matchesOverdue && matchesRiskLevel && !isMatched;
+      // Need Review tab shows all accounts EXCEPT processed ones
+      return matchesSearch && matchesStatus && matchesCollector && matchesOverdue && matchesRiskLevel && !isProcessed;
     });
     
     // Sort by risk level priority (Red first, then Amber, then Green)
@@ -659,17 +659,17 @@ export default function CollectionCellPage() {
               </Button>
               <Button
                 size="sm"
-                variant={activeTab === "matched" ? "primary" : "secondary"}
-                onClick={() => setActiveTab("matched")}
+                variant={activeTab === "processed" ? "primary" : "secondary"}
+                onClick={() => setActiveTab("processed")}
               >
-                Matched ({loanAccounts.filter(account => {
+                Processed ({loanAccounts.filter(account => {
                   const assessment = calculateRiskAssessment(account.cibilScore, account.riskLevel, account.daysOverdue);
                   return assessment.level === 'GOOD' || assessment.level === 'EXCELLENT';
                 }).length})
               </Button>
             </div>
             <div className="flex items-center gap-2">
-              {activeTab === "matched" && (
+              {activeTab === "processed" && (
                 <Button
                   variant="primary"
                   size="sm"
@@ -872,11 +872,11 @@ export default function CollectionCellPage() {
                 ) : filteredAccounts.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={9} className="text-center py-8">
-                      {activeTab === "matched" ? (
+                      {activeTab === "processed" ? (
                         <EmptyState
                           Icon={Target}
-                          title="The Matched Queue is Clear"
-                          description="There are no accounts with GOOD or EXCELLENT risk assessment currently. Great job!"
+                          title="The Processed Queue is Clear"
+                          description="There are no AI-processed low priority accounts currently. Great job!"
                         />
                       ) : (
                         <EmptyState

@@ -23,6 +23,7 @@ from app.api.endpoints import (
     auth,
     users,
     collection,
+    ai_suggestions,
 )
 from app.core.monitoring_service import run_monitoring_cycle, check_held_invoices
 from app.modules.automation import executor as automation_executor
@@ -579,6 +580,7 @@ app.include_router(
 app.include_router(workflow.router, prefix="/api/workflow", tags=["Workflow & Audit"])
 app.include_router(payments.router, prefix="/api/payments", tags=["Payments"])
 app.include_router(collection.router, prefix="/api/collection", tags=["Collection Cell"])
+app.include_router(ai_suggestions.router, prefix="/api/ai-suggestions", tags=["AI Suggestions"])
 
 
 @app.get("/api/health", tags=["Health Check"])
