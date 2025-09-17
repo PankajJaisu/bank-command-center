@@ -55,8 +55,9 @@ def convert_action_to_collection_action(raw_action: str) -> str:
     
     # Default fallback
     return "Send Reminder"
-from app.modules.ingestion import service as ingestion_service
-from app.modules.matching import engine as matching_engine
+# NOTE: Ingestion and matching modules are not available in collection management system
+# from app.modules.ingestion import service as ingestion_service
+# from app.modules.matching import engine as matching_engine
 from app.config import PARALLEL_WORKERS
 from app.utils.auditing import log_audit_event
 from app.utils.logging import (
@@ -127,75 +128,110 @@ def process_customer_loan_data(db: Session, df: pd.DataFrame, file_info: Dict[st
     contracts_created = 0
     
     for index, row in df.iterrows():
-        # Generate email from name
-        name_parts = str(row['Name']).lower().split()
-        email = f"{'.'.join(name_parts)}@example.com" if len(name_parts) > 1 else f"{name_parts[0]}@example.com"
-        
-        # Create customer with proper data mapping
-        loan_amount = float(row['Loan Amount']) if pd.notna(row['Loan Amount']) else 50000
-        percent_due = float(row['% Due']) if pd.notna(row['% Due']) else 0
-        
-        customer = models.Customer(
-            customer_no=str(row['Customer ID']),
-            name=str(row['Name']),
-            email=email,
-            phone=f"+91-{9000000000 + index}",
-            address=f"Address {index + 1}, City, State - {110001 + index}",
-            cibil_score=720 - (index * 10),  # Generate CIBIL scores
-            days_since_employment=15 + (index * 2),
-            employment_status="Verified" if index % 2 == 0 else "Unverified",
-            cbs_income_verification=f"{50 + (index * 5)}%",
-            salary_last_date=date.today() - relativedelta(days=10 + index),
-            cbs_outstanding_amount=loan_amount,
-            cbs_risk_level="red" if percent_due > 80 else ("amber" if percent_due > 50 else "yellow"),
-            pending_amount=float(row['Overdue Amount']) if pd.notna(row['Overdue Amount']) else 0,
-            pendency="Yes" if str(row['Pendency']).lower() == 'yes' else "No",
-            segment=str(row['Segment']) if pd.notna(row['Segment']) else "Retail",  # Load segment from Excel
-            emi_pending=int(row['EMI Pending']) if pd.notna(row['EMI Pending']) else 0,  # Load EMI Pending from Excel
-            cbs_emi_amount=loan_amount * 0.1,  # 10% of loan as EMI
-            cbs_due_day=5 + (index % 25),
-            cbs_last_payment_date=date.today() - relativedelta(months=1),
-        )
-        db.add(customer)
-        db.flush()  # Get the customer ID
-        customers_created += 1
-        
-        # Create loan
-        loan = models.Loan(
-            customer_id=customer.id,
-            loan_id=f"LN-{customer.id:05d}",
-            loan_amount=loan_amount,  # Add the missing loan_amount
-            emi_amount=customer.cbs_emi_amount,
-            outstanding_amount=customer.cbs_outstanding_amount,
-            last_payment_date=customer.cbs_last_payment_date,
-            next_due_date=date.today() + relativedelta(days=customer.cbs_due_day),
-            tenure_months=36,  # Add default tenure
-            interest_rate=12.5,  # Add default interest rate
-            status="active"
-        )
-        db.add(loan)
-        loans_created += 1
-        
-        # Create contract note
-        contract_filename = f"{customer.customer_no}_contract_note.pdf"
-        contract = models.ContractNote(
-            filename=contract_filename,
-            file_path=f"sample_data/contract note/{contract_filename}",
-            contract_emi_amount=customer.cbs_emi_amount,
-            contract_due_day=customer.cbs_due_day,
-            contract_late_fee_percent=2.0,
-            contract_loan_amount=customer.cbs_outstanding_amount,
-            contract_tenure_months=36,
-            contract_interest_rate=12.5,
-            contract_default_clause="Standard default clause",
-            contract_governing_law="Indian Contract Act"
-        )
-        db.add(contract)
-        db.flush()
-        contracts_created += 1
-        
-        # Link contract to customer
-        customer.contract_note_id = contract.id
+        try:
+            # Generate email from name
+            name_parts = str(row['Name']).lower().split()
+            email = f"{'.'.join(name_parts)}@example.com" if len(name_parts) > 1 else f"{name_parts[0]}@example.com"
+            
+            # Create customer with proper data mapping - handle NaN values properly
+            loan_amount_raw = row.get('Loan Amount', 50000)
+            loan_amount = float(loan_amount_raw) if pd.notna(loan_amount_raw) and str(loan_amount_raw).strip() != '' else 50000.0
+            
+            percent_due_raw = row.get('% Due', 0)
+            percent_due = float(percent_due_raw) if pd.notna(percent_due_raw) and str(percent_due_raw).strip() != '' else 0.0
+            
+            # Ensure loan_amount is never NaN or zero
+            if pd.isna(loan_amount) or loan_amount <= 0:
+                loan_amount = 50000.0
+                
+            # Ensure percent_due is never NaN
+            if pd.isna(percent_due) or percent_due < 0:
+                percent_due = 0.0
+            
+            # --- PHASE 1: Map risk level to new simplified categories ---
+            risk_level_mapping = {
+                "red": "High",
+                "amber": "Medium",
+                "yellow": "Low",
+                "green": "Low"
+            }
+            raw_risk = "red" if percent_due > 80 else ("amber" if percent_due > 50 else "yellow")
+            risk_level = risk_level_mapping.get(raw_risk.lower(), "Medium")
+
+            customer = models.Customer(
+                customer_no=str(row['Customer ID']),
+                name=str(row['Name']),
+                email=email,
+                phone=f"+91-{9000000000 + index}",
+                address=f"Address {index + 1}, City, State - {110001 + index}",
+                
+                # --- PHASE 1: Populate new fields ---
+                segment=str(row['Segment']) if 'Segment' in row and pd.notna(row['Segment']) else "Retail",
+                cbs_risk_level=risk_level,
+                # --- END PHASE 1 ---
+
+                cibil_score=720 - (index * 10),
+                days_since_employment=15 + (index * 2),
+                employment_status="Verified" if index % 2 == 0 else "Unverified",
+                cbs_income_verification=f"{50 + (index * 5)}%",
+                salary_last_date=date.today() - relativedelta(days=10 + index),
+                cbs_outstanding_amount=loan_amount,
+                pending_amount=float(row['Overdue Amount']) if pd.notna(row['Overdue Amount']) else 0,
+                pendency="Yes" if str(row['Pendency']).lower() == 'yes' else "No",
+                emi_pending=int(row['EMI Pending']) if 'EMI Pending' in row and pd.notna(row['EMI Pending']) else 0,
+                cbs_emi_amount=loan_amount * 0.1,
+                cbs_due_day=5 + (index % 25),
+                cbs_last_payment_date=date.today() - relativedelta(months=1),
+            )
+            db.add(customer)
+            db.flush()  # Get the customer ID
+            customers_created += 1
+            
+            # Create loan - ensure no NaN values
+            emi_amount = customer.cbs_emi_amount if pd.notna(customer.cbs_emi_amount) else loan_amount * 0.1
+            outstanding_amount = customer.cbs_outstanding_amount if pd.notna(customer.cbs_outstanding_amount) else loan_amount
+            
+            loan = models.Loan(
+                customer_id=customer.id,
+                loan_id=f"LN-{customer.id:05d}",
+                loan_amount=loan_amount,  # Already validated above
+                emi_amount=emi_amount,
+                outstanding_amount=outstanding_amount,
+                last_payment_date=customer.cbs_last_payment_date,
+                next_due_date=date.today() + relativedelta(days=customer.cbs_due_day),
+                tenure_months=36,  # Add default tenure
+                interest_rate=12.5,  # Add default interest rate
+                status="active"
+            )
+            db.add(loan)
+            loans_created += 1
+            
+            # Create contract note
+            contract_filename = f"{customer.customer_no}_contract_note.pdf"
+            contract = models.ContractNote(
+                filename=contract_filename,
+                file_path=f"sample_data/contract note/{contract_filename}",
+                contract_emi_amount=customer.cbs_emi_amount,
+                contract_due_day=customer.cbs_due_day,
+                contract_late_fee_percent=2.0,
+                contract_loan_amount=customer.cbs_outstanding_amount,
+                contract_tenure_months=36,
+                contract_interest_rate=12.5,
+                contract_default_clause="Standard default clause",
+                contract_governing_law="Indian Contract Act"
+            )
+            db.add(contract)
+            db.flush()
+            contracts_created += 1
+            
+            # Link contract to customer
+            customer.contract_note_id = contract.id
+            
+        except Exception as e:
+            logger = get_logger(__name__)
+            logger.warning(f"Error processing row {index}: {str(e)}")
+            # Continue processing other rows instead of failing completely
+            continue
         
     db.commit()
     
@@ -225,13 +261,13 @@ def process_cibil_data(db: Session, df: pd.DataFrame, file_info: Dict[str, Any])
             customer.cibil_score = cibil_score
             customer.employment_status = str(row['Employment_Status']) if pd.notna(row['Employment_Status']) else customer.employment_status
             
-            # Update risk level based on CIBIL score
+            # --- PHASE 1: Update risk level based on CIBIL score ---
             if cibil_score >= 750:
-                customer.cbs_risk_level = "green"
-            elif cibil_score >= 700:
-                customer.cbs_risk_level = "yellow"
+                customer.cbs_risk_level = "Low"
+            elif cibil_score >= 650:
+                customer.cbs_risk_level = "Medium"
             else:
-                customer.cbs_risk_level = "red"
+                customer.cbs_risk_level = "High"
                 
             updated_customers += 1
     
@@ -635,16 +671,26 @@ def parse_loan_policy_rules_fallback(policy_text: str) -> List[Dict[str, Any]]:
 
 
 def update_job_progress(
-    job_id: int, processed_count: int, total_files: int, status: str = "processing"
+    job_id: int, processed_count: int, total_files: int, status: str = "processing", db_session=None
 ):
     try:
-        with SessionLocal() as db:
-            job = db.query(models.Job).filter_by(id=job_id).first()
+        if db_session:
+            # Use the provided session (within existing transaction)
+            job = db_session.query(models.Job).filter_by(id=job_id).first()
             if job:
                 job.processed_files = processed_count
                 job.total_files = total_files
                 job.status = status
-                db.commit()
+                # Don't commit here - let the caller handle the transaction
+        else:
+            # Create new session (for standalone updates)
+            with SessionLocal() as db:
+                job = db.query(models.Job).filter_by(id=job_id).first()
+                if job:
+                    job.processed_files = processed_count
+                    job.total_files = total_files
+                    job.status = status
+                    db.commit()
     except Exception as e:
         logger = get_logger(__name__)
         logger.error(f"Error updating job progress: {e}")
@@ -1426,7 +1472,7 @@ def process_contract_documents(job_id: int, files_data: List[Dict[str, Any]]):
                                 cbs_emi_amount=db_fields.get("contract_emi_amount"),
                                 cbs_due_day=db_fields.get("contract_due_day"),
                                 cbs_outstanding_amount=db_fields.get("contract_loan_amount", 0) * 0.8,  # 80% outstanding
-                                cbs_risk_level="GREEN"
+                                cbs_risk_level="Low"
                             )
                             db.add(customer)
                             db.flush()
@@ -1663,15 +1709,23 @@ def process_all_sample_data(job_id: int, files_data: List[Dict[str, Any]]):
                         })
                     
                     processed_count += 1
-                    update_job_progress(job_id, processed_count, total_files_to_process)
+                    update_job_progress(job_id, processed_count, total_files_to_process, "processing", db)
                 
                 # Commit all changes
-                db.commit()
-                logger.info("💾 Committed all sample data processing changes")
+                try:
+                    db.commit()
+                    logger.info("💾 Committed all sample data processing changes")
+                except Exception as commit_error:
+                    logger.error(f"Failed to commit changes: {str(commit_error)}")
+                    db.rollback()
+                    job_final_status = "failed"
                 
             except Exception as e:
                 log_error_with_context(logger, e, {"job_id": job_id}, "Sample data processing")
-                db.rollback()
+                try:
+                    db.rollback()
+                except Exception as rollback_error:
+                    logger.error(f"Failed to rollback transaction: {str(rollback_error)}")
                 job_final_status = "failed"
 
     except Exception as e:
@@ -1751,7 +1805,7 @@ def process_contract_note_file(db, filename: str, file_content: bytes) -> tuple[
                 cbs_emi_amount=db_fields.get("contract_emi_amount"),
                 cbs_due_day=db_fields.get("contract_due_day"),
                 cbs_outstanding_amount=db_fields.get("contract_loan_amount", 0) * 0.8,
-                cbs_risk_level="GREEN"
+                cbs_risk_level="Low"
             )
             db.add(customer)
             db.flush()
@@ -1827,7 +1881,7 @@ def process_customer_data_excel(db, filename: str, file_content: bytes) -> tuple
                     name=str(customer_name),
                     cbs_emi_amount=loan_amount * (percent_due / 100) if percent_due > 0 else loan_amount * 0.1,
                     cbs_outstanding_amount=amount_pending,
-                    cbs_risk_level="RED" if pendency == 'yes' else "YELLOW",
+                    cbs_risk_level="High" if pendency == 'yes' else "Low",
                     cbs_due_day=5  # Default due day
                 )
                 db.add(customer)

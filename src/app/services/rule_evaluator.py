@@ -184,6 +184,88 @@ def get_available_customer_fields():
         {"field": "customer.emi_amount", "display": "CBS EMI Amount", "type": "number"},
         {"field": "customer.due_day", "display": "CBS Due Day", "type": "number"},
         {"field": "customer.outstanding_amount", "display": "CBS Outstanding Amount", "type": "number"},
-        {"field": "customer.risk_level", "display": "CBS Risk Level", "type": "text"},
+        {"field": "customer.cbs_risk_level", "display": "CBS Risk Level", "type": "text"},
         {"field": "customer.last_payment_date", "display": "CBS Last Payment Date", "type": "date"},
     ]
+
+
+# --- PHASE 3: NEW CUSTOMER-CENTRIC RULE EVALUATOR ---
+
+def evaluate_customer_rule_condition(customer_data: dict, condition: dict) -> bool:
+    """
+    Evaluates a single rule condition against a customer's data dictionary.
+    """
+    from app.utils.logging import get_logger
+    logger = get_logger(__name__)
+    
+    field = condition.get("field")
+    operator = condition.get("operator")
+    value = condition.get("value")
+
+    if not all([field, operator, value is not None]):
+        logger.warning(f"Skipping invalid rule condition: {condition}")
+        return False
+
+    customer_value = customer_data.get(field)
+
+    # If the customer data for the field is missing, the condition cannot be met.
+    if customer_value is None:
+        return False
+
+    try:
+        # Type conversions for robust comparison
+        if isinstance(value, (int, float)):
+            c_value = float(customer_value) if customer_value != '' else 0
+            v_value = float(value)
+        else:
+            c_value = customer_value
+            v_value = value
+        
+        if operator == "equals":
+            return c_value == v_value
+        elif operator == "not_equals":
+            return c_value != v_value
+        elif operator == "contains":
+            return str(v_value).lower() in str(c_value).lower()
+        elif operator == ">":
+            return float(c_value) > float(v_value)
+        elif operator == "<":
+            return float(c_value) < float(v_value)
+        elif operator == ">=":
+            return float(c_value) >= float(v_value)
+        elif operator == "<=":
+            return float(c_value) <= float(v_value)
+        else:
+            logger.warning(f"Unsupported operator '{operator}' in rule condition.")
+            return False
+    except (ValueError, TypeError) as e:
+        logger.error(f"Type error during condition evaluation for field '{field}': {e}")
+        return False
+
+
+def evaluate_customer_rule(customer_data: dict, rule: dict) -> bool:
+    """
+    Evaluates if a customer matches a rule's conditions based on a data dictionary.
+    """
+    from app.utils.logging import get_logger
+    logger = get_logger(__name__)
+    
+    conditions_data = rule.get("conditions", {})
+    if not isinstance(conditions_data, dict):
+        logger.warning(f"Rule {rule.get('id')} has malformed conditions. Skipping.")
+        return False
+        
+    logical_operator = conditions_data.get("logical_operator", "AND").upper()
+    conditions = conditions_data.get("conditions", [])
+
+    if not conditions:
+        return False
+
+    results = [evaluate_customer_rule_condition(customer_data, cond) for cond in conditions]
+
+    if logical_operator == "AND":
+        return all(results)
+    elif logical_operator == "OR":
+        return any(results)
+    
+    return False

@@ -1,13 +1,16 @@
 # src/app/api/endpoints/collection.py
 from fastapi import APIRouter, Depends, HTTPException, Query as QueryParam
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, desc, and_
+from sqlalchemy import func, desc, and_, case
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
+from pydantic import BaseModel
 
 from app.api.dependencies import get_db, get_current_user
 from app.db import models, schemas
 from app.utils.logging import get_logger
+from app.utils.email_service import send_internal_escalation_email
+from app.utils.auditing import log_audit_event
 
 logger = get_logger(__name__)
 
@@ -34,6 +37,7 @@ def get_customers(
         )
     
     if risk_level:
+        # PHASE 1: Query by the new 'risk_level' field
         query = query.filter(models.Customer.cbs_risk_level == risk_level)
     
     customers = query.order_by(models.Customer.customer_no).offset(offset).limit(limit).all()
@@ -130,7 +134,7 @@ def get_customer_contract_terms(
             "emi_amount": customer.cbs_emi_amount,
             "due_day": customer.cbs_due_day,
             "outstanding_amount": customer.cbs_outstanding_amount,
-            "risk_level": customer.cbs_risk_level,
+            "risk_level": customer.cbs_risk_level, # Use correct field name
             "last_payment_date": customer.cbs_last_payment_date,
         }
     }
@@ -201,10 +205,10 @@ def get_dashboard_summary(
     # Customer risk summary
     risk_summary = (
         db.query(
-            models.Customer.cbs_risk_level,
+            models.Customer.cbs_risk_level, # Use correct field name
             func.count(models.Customer.id).label("count")
         )
-        .group_by(models.Customer.cbs_risk_level)
+        .group_by(models.Customer.cbs_risk_level) # Use correct field name
         .all()
     )
     
@@ -238,7 +242,7 @@ def get_dashboard_summary(
             ]
         },
         "customer_risk": {
-            risk.cbs_risk_level or "UNKNOWN": risk.count 
+            risk.cbs_risk_level or "UNKNOWN": risk.count # Use correct field name
             for risk in risk_summary
         },
         "contract_processing": {
@@ -312,18 +316,18 @@ def get_collection_kpis(
     # Calculate total receivables due
     total_receivables = db.query(func.sum(models.Customer.cbs_outstanding_amount)).scalar() or 0
     
-    # Calculate accounts overdue (customers with risk level 'red' or 'amber')
+    # Calculate accounts overdue (customers with risk level 'High' or 'Medium')
     accounts_overdue = db.query(models.Customer).filter(
-        models.Customer.cbs_risk_level.in_(['red', 'amber'])
+        models.Customer.cbs_risk_level.in_(['High', 'Medium']) # Use correct field name
     ).count()
     
     # Calculate delinquency rate
     total_customers = db.query(models.Customer).count()
     delinquency_rate = (accounts_overdue / total_customers * 100) if total_customers > 0 else 0
     
-    # Calculate amount overdue (sum of outstanding amounts for red/amber customers)
+    # Calculate amount overdue (sum of outstanding amounts for High/Medium risk customers)
     amount_overdue = db.query(func.sum(models.Customer.cbs_outstanding_amount)).filter(
-        models.Customer.cbs_risk_level.in_(['red', 'amber'])
+        models.Customer.cbs_risk_level.in_(['High', 'Medium']) # Use correct field name
     ).scalar() or 0
     
     # For simplicity, assume 75% is collected (in a real scenario, this would come from payment data)
@@ -352,20 +356,20 @@ def get_collection_metrics(
     # Get DDD bucket analysis - group by risk level as a proxy for DPD buckets
     risk_distribution = (
         db.query(
-            models.Customer.cbs_risk_level,
+            models.Customer.cbs_risk_level, # Use correct field name
             func.count(models.Customer.id).label("count"),
             func.sum(models.Customer.cbs_outstanding_amount).label("amount")
         )
-        .group_by(models.Customer.cbs_risk_level)
+        .group_by(models.Customer.cbs_risk_level) # Use correct field name
         .all()
     )
     
     # Map risk levels to DPD buckets
     ddd_buckets = []
     risk_mapping = {
-        "yellow": {"bucket": "0-30", "sort": 1},
-        "amber": {"bucket": "31-60", "sort": 2}, 
-        "red": {"bucket": "90+", "sort": 4}
+        "Low": {"bucket": "0-30", "sort": 1},
+        "Medium": {"bucket": "31-60", "sort": 2}, 
+        "High": {"bucket": "90+", "sort": 4}
     }
     
     for risk_level, count, amount in risk_distribution:
@@ -390,12 +394,12 @@ def get_collection_metrics(
     
     # Calculate accounts overdue for delinquency trend
     accounts_overdue = db.query(models.Customer).filter(
-        models.Customer.cbs_risk_level.in_(['red', 'amber'])
+        models.Customer.cbs_risk_level.in_(['High', 'Medium']) # Use correct field name
     ).count()
     
     for risk_level, count, _ in risk_distribution:
-        recovery_rate = {"yellow": 85.2, "amber": 72.1, "red": 45.8}.get(risk_level, 60.0)
-        loan_type = {"yellow": "Personal Loans", "amber": "Auto Loans", "red": "Home Loans"}.get(risk_level, "Education Loans")
+        recovery_rate = {"Low": 85.2, "Medium": 72.1, "High": 45.8}.get(risk_level, 60.0)
+        loan_type = {"Low": "Personal Loans", "Medium": "Auto Loans", "High": "Home Loans"}.get(risk_level, "Education Loans")
         recovery_performance.append({
             "loanType": loan_type,
             "recoveryRate": recovery_rate
@@ -488,14 +492,18 @@ def get_loan_accounts_with_contracts(
             models.Customer.id.label("customer_id"),
             models.Customer.customer_no,
             models.Customer.name.label("customer_name"),
-            models.Customer.cbs_risk_level,
+            models.Customer.cbs_risk_level, # Use correct field name
             models.Customer.cbs_emi_amount,
             models.Customer.cbs_due_day,
             models.Customer.cbs_outstanding_amount,
             models.Customer.cbs_last_payment_date,
-            models.Customer.pending_amount,  # Add pending_amount field
-            models.Customer.emi_pending,  # Add emi_pending field
-            models.Customer.segment,  # Add segment field
+            models.Customer.pending_amount,
+            models.Customer.emi_pending,
+            models.Customer.segment,
+            # PHASE 1: Add new action-related fields
+            models.Customer.ai_suggested_action,
+            models.Customer.last_action_taken,
+            # End Phase 1 fields
             models.Loan.loan_id,
             models.Loan.emi_amount,
             models.Loan.outstanding_amount,
@@ -514,7 +522,7 @@ def get_loan_accounts_with_contracts(
     )
     
     if risk_level:
-        query = query.filter(models.Customer.cbs_risk_level == risk_level.upper())
+        query = query.filter(models.Customer.cbs_risk_level == risk_level.capitalize())
     
     if status:
         query = query.filter(models.Loan.status == status)
@@ -552,8 +560,11 @@ def get_loan_accounts_with_contracts(
             "principalBalance": float(result.outstanding_amount * 0.9) if result.outstanding_amount is not None else 32000.0,  # Mock calculation
             "interestAccrued": float(result.outstanding_amount * 0.1) if result.outstanding_amount is not None else 3000.0,  # Mock calculation
             "collectorName": "System Auto",  # Mock collector
-            "riskLevel": "yellow" if (result.cbs_risk_level or "GREEN").lower() == "green" else (result.cbs_risk_level or "GREEN").lower(),
+            "riskLevel": {"High": "red", "Medium": "amber", "Low": "yellow"}.get(result.cbs_risk_level, "yellow"),
             "alertSummary": f"Risk Level: {result.cbs_risk_level or 'Unknown'}",
+            # PHASE 1: Add new fields to response
+            "aiSuggestedAction": result.ai_suggested_action,
+            "lastActionTaken": result.last_action_taken,
             "lastContactDate": "2025-01-01T00:00:00",  # Mock date
             # Contract information
             "hasContractNote": result.contract_note_id is not None,
@@ -701,3 +712,137 @@ async def control_policy_scheduler(
     except Exception as e:
         logger.error(f"Error controlling policy scheduler: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to control policy scheduler: {str(e)}")
+
+
+# --- PHASE 4: NEW SCHEMAS FOR WORKBENCH ACTIONS ---
+
+class LogActionRequest(BaseModel):
+    action_taken: str
+    notes: Optional[str] = None
+
+class EscalateEmailRequest(BaseModel):
+    to_email: str
+    subject: str
+    body: str
+
+
+# --- PHASE 4: NEW WORKBENCH API ENDPOINTS ---
+
+@router.get("/workbench/pending-cases", response_model=List[schemas.Customer])
+def get_workbench_pending_cases(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Fetches all customers classified as 'Medium' or 'High' risk that
+    have not yet had a manual action taken.
+    """
+    pending_cases = (
+        db.query(models.Customer)
+        .filter(
+            models.Customer.cbs_risk_level.in_(["Medium", "High"]),
+            models.Customer.last_action_taken.is_(None)  # Only fetch cases needing action
+        )
+        .order_by(
+            # Prioritize High risk, then Medium risk
+            case((models.Customer.cbs_risk_level == "High", 1), (models.Customer.cbs_risk_level == "Medium", 2), else_=3),
+            models.Customer.id  # Secondary sort for consistency
+        )
+        .limit(100)  # Limit to a reasonable number for the UI
+        .all()
+    )
+    return pending_cases
+
+
+@router.post("/workbench/case/{customer_no}/log-action", response_model=schemas.Customer)
+def log_workbench_action(
+    customer_no: str,
+    payload: LogActionRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Logs a manual action taken by a collection agent."""
+    customer = db.query(models.Customer).filter(models.Customer.customer_no == customer_no).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    customer.last_action_taken = payload.action_taken
+    
+    # --- PHASE 5: ENHANCED AUDIT LOGGING FOR MANUAL ACTIONS ---
+    log_audit_event(
+        db,
+        user=current_user.email,
+        action="Manual Action Logged",
+        entity_type="Customer",
+        entity_id=customer.customer_no,
+        summary=f"Action: '{payload.action_taken}'",
+        details={
+            "notes": payload.notes,
+            "agent_id": current_user.id,
+            "agent_email": current_user.email,
+            "previous_risk_level": customer.cbs_risk_level,
+            "ai_suggested_action": customer.ai_suggested_action,
+            "outstanding_amount": customer.cbs_outstanding_amount,
+            "action_source": "resolution_workbench"
+        }
+    )
+    # --- END PHASE 5 ---
+    
+    db.commit()
+    db.refresh(customer)
+    return customer
+
+
+@router.post("/workbench/case/{customer_no}/escalate-email")
+def escalate_case_via_email(
+    customer_no: str,
+    payload: EscalateEmailRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Sends an internal escalation email and logs the action."""
+    customer = db.query(models.Customer).filter(models.Customer.customer_no == customer_no).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    try:
+        send_internal_escalation_email(
+            to_email=payload.to_email,
+            subject=payload.subject,
+            body=payload.body,
+            from_agent=current_user.email
+        )
+
+        action_summary = f"Escalated via Email to {payload.to_email}"
+        customer.last_action_taken = action_summary
+        
+        # --- PHASE 5: ENHANCED AUDIT LOGGING FOR ESCALATIONS ---
+        log_audit_event(
+            db,
+            user=current_user.email,
+            action="Case Escalated",
+            entity_type="Customer",
+            entity_id=customer.customer_no,
+            summary=action_summary,
+            details={
+                "recipient": payload.to_email,
+                "subject": payload.subject,
+                "body": payload.body,
+                "agent_id": current_user.id,
+                "agent_email": current_user.email,
+                "escalation_reason": "manual_agent_decision",
+                "previous_risk_level": customer.cbs_risk_level,
+                "ai_suggested_action": customer.ai_suggested_action,
+                "outstanding_amount": customer.cbs_outstanding_amount,
+                "escalation_source": "resolution_workbench"
+            }
+        )
+        # --- END PHASE 5 ---
+        
+        db.commit()
+        return {"message": "Escalation email sent and action logged successfully."}
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to send escalation email for {customer_no}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to send escalation email.")

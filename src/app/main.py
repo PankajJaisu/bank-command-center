@@ -243,8 +243,8 @@ async def lifespan(app: FastAPI):
     
     # Start the AI Policy Agent scheduler
     logger.info("🤖 Starting AI Policy Agent scheduler...")
-    policy_scheduler = start_policy_scheduler(interval_minutes=0.5)  # Run every 30 seconds
-    logger.info("✅ AI Policy Agent scheduler started - will run automatically every 30 seconds")
+    policy_scheduler = start_policy_scheduler(interval_minutes=settings.policy_agent_interval_minutes)
+    logger.info(f"✅ AI Policy Agent scheduler started - will run automatically every {settings.policy_agent_interval_minutes} minutes")
 
     yield
 
@@ -323,6 +323,10 @@ app.include_router(
 )
 app.include_router(
     configuration.router, prefix="/api/config", tags=["Configuration & Settings"]
+)
+# Add documents router for backward compatibility
+app.include_router(
+    configuration.router, prefix="/api/documents", tags=["Document Management"]
 )
 app.include_router(collection.router, prefix="/api/collection", tags=["Collection Management"])
 

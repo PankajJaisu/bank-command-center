@@ -644,19 +644,22 @@ export default function AiPoliciesPage() {
     
     setIsUploading(true);
     try {
-      const job = await uploadPolicyDocuments(
+      const result = await uploadPolicyDocuments(
         files,
         uploadRuleLevel,
         uploadSegment || undefined,
         uploadCustomerId || undefined
       );
       
-      toast.success(`Policy documents uploaded successfully! Job #${job.id} is processing.`);
+      toast.success(`${result.message}`, { duration: 5000 });
       setIsPolicyUploadOpen(false);
       
       // Reset form
       setUploadSegment("");
       setUploadCustomerId("");
+      
+      // Refresh rules to show new pending rules
+      fetchRules();
       
       // Refresh rules after a delay to allow processing
       setTimeout(async () => {

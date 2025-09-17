@@ -504,6 +504,10 @@ class Customer(Base):
     pending_amount = Column(Float, nullable=True)  # Pending EMI amount
     pendency = Column(String(StringLength.SHORT), nullable=True)  # Yes/No pendency status
     
+    # AI and action tracking fields
+    ai_suggested_action = Column(String(StringLength.MEDIUM), nullable=True)  # AI suggested action
+    last_action_taken = Column(String(StringLength.MEDIUM), nullable=True)  # Last manual action taken
+    
     # Contract relationship
     contract_note_id = Column(Integer, ForeignKey("contract_notes.id"), nullable=True)
     contract_note = relationship("ContractNote", back_populates="customers")

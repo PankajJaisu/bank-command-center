@@ -22,6 +22,9 @@ PORT=8000
 PDF_STORAGE_PATH=./sample_data
 GENERATED_PDF_STORAGE_PATH=./generated_documents
 
+# AI Policy Agent Configuration
+POLICY_AGENT_INTERVAL_MINUTES=60
+
 # === FRONTEND CONFIGURATION ===
 # API Base URL (Update with your actual backend URL)
 NEXT_PUBLIC_API_BASE_URL=https://your-backend-app.onrender.com/api

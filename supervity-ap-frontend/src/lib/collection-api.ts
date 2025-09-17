@@ -311,3 +311,69 @@ export async function getContactHistory(loanAccountId: number): Promise<ContactL
   const data = await response.json();
   return ContactLogSchema.array().parse(data);
 }
+
+
+// --- PHASE 4: NEW WORKBENCH API FUNCTIONS ---
+
+// The response from the pending-cases endpoint is a list of full customer objects.
+// Let's use a simplified schema for the list view.
+export const WorkbenchCaseSchema = z.object({
+  id: z.number(),
+  customer_no: z.string(),
+  name: z.string(),
+  segment: z.string().nullable(),
+  risk_level: z.string().nullable(),
+  ai_suggested_action: z.string().nullable(),
+  cbs_outstanding_amount: z.number().nullable(),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  address: z.string().nullable(),
+  cbs_emi_amount: z.number().nullable(),
+  pending_amount: z.number().nullable(),
+  emi_pending: z.number().nullable(),
+});
+export type WorkbenchCase = z.infer<typeof WorkbenchCaseSchema>;
+
+export async function getWorkbenchCases(): Promise<WorkbenchCase[]> {
+  const response = await authenticatedFetch(`${getApiBaseUrl()}/collection/workbench/pending-cases`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch workbench cases");
+  }
+  const data = await response.json();
+  return z.array(WorkbenchCaseSchema).parse(data);
+}
+
+export async function logWorkbenchAction(
+  customerNo: string,
+  action_taken: string,
+  notes?: string
+): Promise<any> {
+  const response = await authenticatedFetch(`${getApiBaseUrl()}/collection/workbench/case/${customerNo}/log-action`, {
+    method: "POST",
+    body: JSON.stringify({ action_taken, notes }),
+  });
+  if (!response.ok) {
+    throw new Error("Failed to log action");
+  }
+  return response.json();
+}
+
+interface EscalateEmailPayload {
+  to_email: string;
+  subject: string;
+  body: string;
+}
+
+export async function escalateCaseByEmail(
+  customerNo: string,
+  payload: EscalateEmailPayload
+): Promise<{ message: string }> {
+  const response = await authenticatedFetch(`${getApiBaseUrl()}/collection/workbench/case/${customerNo}/escalate-email`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error("Failed to send escalation email");
+  }
+  return response.json();
+}

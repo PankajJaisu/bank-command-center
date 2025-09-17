@@ -222,17 +222,17 @@ export async function uploadDocuments(files: File[]): Promise<Job> {
  * @param ruleLevel - The level at which rules should be created (system, segment, customer)
  * @param segment - The segment name (required if ruleLevel is 'segment')
  * @param customerId - The customer ID (required if ruleLevel is 'customer')
- * @returns The created job object
+ * @returns The upload result with created rules count
  */
 export async function uploadPolicyDocuments(
   files: File[], 
   ruleLevel: 'system' | 'segment' | 'customer',
   segment?: string,
   customerId?: string
-): Promise<Job> {
+): Promise<{message: string; rules_created: number; filename: string}> {
   const formData = new FormData();
   files.forEach(file => {
-    formData.append("files", file);
+    formData.append("file", file);
   });
 
   // Build query parameters
@@ -243,7 +243,7 @@ export async function uploadPolicyDocuments(
   if (segment) params.append('segment', segment);
   if (customerId) params.append('customer_id', customerId);
 
-  const response = await authenticatedFetch(`${getApiBaseUrl()}/documents/upload-policy?${params}`, {
+  const response = await authenticatedFetch(`${getApiBaseUrl()}/config/upload-policy?${params}`, {
     method: "POST",
     body: formData,
   });

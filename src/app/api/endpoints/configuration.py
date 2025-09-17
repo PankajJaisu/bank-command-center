@@ -1,11 +1,15 @@
 # src/app/api/endpoints/configuration.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, cast, Float, case
 from typing import List, Optional
 from pydantic import BaseModel
+import fitz  # PyMuPDF
+import os
+import threading
+from datetime import datetime
 
-from app.api.dependencies import get_db, get_current_active_admin
+from app.api.dependencies import get_db, get_current_active_admin, get_current_user
 from app.db import models, schemas
 from app.db.session import engine  # Import the engine for dialect detection
 
@@ -14,6 +18,15 @@ from app.utils.auditing import log_audit_event
 
 # --- ADDED: Import rule evaluator for field definitions ---
 from app.services.rule_evaluator import get_available_contract_fields, get_available_customer_fields
+
+# --- PHASE 2: Import policy parser service ---
+from app.services import policy_parser_service
+from app.utils.logging import get_logger
+
+# --- ADDED: Import background tasks for sample data processing ---
+from app.core.background_tasks import process_all_sample_data
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -712,3 +725,220 @@ def get_all_rule_fields(
             {"value": "is_null", "label": "Is Empty", "types": ["text", "number", "date"]},
         ]
     }
+
+
+# --- PHASE 2: NEW ENDPOINT FOR POLICY UPLOAD ---
+@router.post("/upload-policy", summary="Upload and parse a policy document")
+async def upload_and_parse_policy(
+    file: UploadFile = File(...),
+    rule_level: str = Query("system", enum=["system", "segment", "customer"]),
+    segment: Optional[str] = Query(None),
+    customer_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    admin_user: models.User = Depends(get_current_active_admin),
+):
+    """
+    Uploads a policy document (PDF), extracts text, parses it with AI to create rules,
+    and saves them with a 'pending_review' status.
+    """
+    try:
+        if not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+
+        # Extract text from PDF
+        pdf_bytes = await file.read()
+        policy_text = ""
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+            for page in doc:
+                policy_text += page.get_text()
+
+        if not policy_text.strip():
+            raise HTTPException(status_code=400, detail="Could not extract text from PDF.")
+
+        # Parse text to rules using the AI service
+        extracted_rules = policy_parser_service.parse_policy_to_rules(policy_text)
+        if not extracted_rules:
+            raise HTTPException(status_code=400, detail="AI could not extract any valid rules from the document.")
+
+        # Save rules as 'pending_review'
+        new_rules_count = 0
+        for rule_data in extracted_rules:
+            new_rule = models.AutomationRule(
+                rule_name=rule_data.get("rule_name", "Unnamed AI Rule"),
+                description=rule_data.get("description", ""),
+                conditions=rule_data.get("conditions", {}),
+                action=rule_data.get("action", "Send Reminder"),
+                is_active=0,  # Rules are inactive until approved
+                source="policy_upload",
+                status="pending_review",
+                rule_level=rule_level,
+                segment=segment if rule_level == "segment" else None,
+                customer_id=customer_id if rule_level == "customer" else None,
+                source_document=file.filename,
+            )
+            db.add(new_rule)
+            new_rules_count += 1
+        
+        db.commit()
+
+        return {
+            "message": f"Successfully uploaded and created {new_rules_count} rules for review.",
+            "rules_created": new_rules_count,
+            "filename": file.filename,
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error during policy upload: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- SAMPLE DATA SYNC ENDPOINT ---
+@router.post("/sync-sample-data", response_model=schemas.Job, status_code=status.HTTP_202_ACCEPTED)
+def sync_sample_data_endpoint(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Triggers a comprehensive sync of all sample data including contract notes, 
+    customer Excel files, and loan documents from the sample_data directory.
+    """
+    try:
+        # Create a new job record
+        new_job = models.Job(
+            status="processing",
+            total_files=0,  # Will be updated by the background task
+            processed_files=0,
+            created_at=datetime.utcnow()
+        )
+        db.add(new_job)
+        db.commit()
+        db.refresh(new_job)
+        
+        logger.info(f"🚀 Starting sample data sync job {new_job.id} for user {current_user.email}")
+        
+        # Collect all sample data files
+        sample_data_path = os.path.join(os.getcwd(), "sample_data")
+        files_data = []
+        
+        if not os.path.exists(sample_data_path):
+            raise HTTPException(status_code=404, detail="Sample data directory not found")
+        
+        # Process contract notes
+        contract_notes_path = os.path.join(sample_data_path, "contract note")
+        if os.path.exists(contract_notes_path):
+            for filename in os.listdir(contract_notes_path):
+                if filename.lower().endswith('.pdf'):
+                    file_path = os.path.join(contract_notes_path, filename)
+                    with open(file_path, 'rb') as f:
+                        files_data.append({
+                            "filename": filename,
+                            "content": f.read(),
+                            "file_type": "contract_note",
+                            "source_folder": "contract note"
+                        })
+        
+        # Process customer data Excel files
+        customer_data_path = os.path.join(sample_data_path, "customer_data")
+        if os.path.exists(customer_data_path):
+            for filename in os.listdir(customer_data_path):
+                if filename.lower().endswith(('.xlsx', '.xls')):
+                    file_path = os.path.join(customer_data_path, filename)
+                    with open(file_path, 'rb') as f:
+                        files_data.append({
+                            "filename": filename,
+                            "content": f.read(),
+                            "file_type": "customer_data",
+                            "source_folder": "customer_data"
+                        })
+        
+        # Process loan policy documents
+        loan_policy_path = os.path.join(sample_data_path, "invoices")  # Note: invoices folder contains loan policies
+        if os.path.exists(loan_policy_path):
+            for filename in os.listdir(loan_policy_path):
+                if filename.lower().endswith('.pdf') and 'policy' in filename.lower():
+                    file_path = os.path.join(loan_policy_path, filename)
+                    with open(file_path, 'rb') as f:
+                        files_data.append({
+                            "filename": filename,
+                            "content": f.read(),
+                            "file_type": "loan_document",
+                            "source_folder": "invoices"
+                        })
+        
+        # Update job with total files count
+        new_job.total_files = len(files_data)
+        db.commit()
+        
+        if not files_data:
+            new_job.status = "completed"
+            new_job.completed_at = datetime.utcnow()
+            new_job.summary = [{"filename": "No files found", "status": "error", "message": "No sample data files found to process", "extracted_id": None, "document_type": None}]
+            db.commit()
+            return new_job
+        
+        # Start background processing in a separate thread
+        def run_background_task():
+            process_all_sample_data(new_job.id, files_data)
+        
+        thread = threading.Thread(target=run_background_task)
+        thread.daemon = True
+        thread.start()
+        
+        # Log audit event
+        log_audit_event(
+            db=db,
+            user=current_user.email,
+            action="Sample Data Sync Started",
+            entity_type="Job",
+            entity_id=str(new_job.id),
+            summary=f"Started comprehensive sample data sync with {len(files_data)} files",
+            details={
+                "job_id": new_job.id,
+                "total_files": len(files_data),
+                "file_types": list(set(f["file_type"] for f in files_data))
+            }
+        )
+        
+        return new_job
+        
+    except Exception as e:
+        logger.error(f"Error starting sample data sync: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to start sample data sync: {str(e)}")
+
+
+# --- JOB STATUS ENDPOINTS ---
+@router.get("/jobs/{job_id}", response_model=schemas.Job)
+def get_job_status(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Get the status of a specific job by ID.
+    """
+    job = db.query(models.Job).filter(models.Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    return job
+
+
+@router.get("/jobs", response_model=List[schemas.Job])
+def get_all_jobs(
+    limit: int = Query(50, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Get a list of recent jobs with pagination.
+    """
+    jobs = (
+        db.query(models.Job)
+        .order_by(models.Job.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return jobs

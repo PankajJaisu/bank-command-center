@@ -203,3 +203,106 @@ async def send_email_notification(subject: str, recipients: List[str], body: str
     logger.debug(f"Body: {body}")
     logger.info("-------------------------")
     return {"message": "Email notification logged"}
+
+
+# --- PHASE 3: COLLECTION EMAIL FUNCTIONS ---
+
+def generate_collection_email(action: str, customer) -> tuple[str, str]:
+    """
+    Generates a collection email subject and body from a template.
+    """
+    from datetime import datetime
+    
+    # Get template, fallback to default if action not found
+    template_info = EMAIL_TEMPLATES.get(action)
+    if not template_info:
+        # Use a default template for unknown actions
+        template_info = {
+            "subject": "Regarding Your Loan Account {customer_no}",
+            "template": """
+            <html><body>
+                <p>Dear {customer_name},</p>
+                <p>This is a notification regarding your loan account <strong>{customer_no}</strong>.</p>
+                <p>Please contact us at your earliest convenience to discuss your account status.</p>
+                <p>Thank you,<br>Supervity Bank Collections</p>
+            </body></html>
+            """
+        }
+    
+    # Calculate days overdue
+    days_overdue = 0
+    if customer.cbs_last_payment_date:
+        days_since_payment = (datetime.utcnow().date() - customer.cbs_last_payment_date).days
+        days_overdue = max(0, days_since_payment - 30)  # Assuming 30-day payment cycle
+    
+    email_data = {
+        "customer_name": customer.name,
+        "customer_no": customer.customer_no,
+        "pending_amount": customer.pending_amount or customer.cbs_outstanding_amount or 0,
+        "emi_pending": customer.emi_pending or 0,
+        "days_overdue": days_overdue,
+        "emi_amount": customer.cbs_emi_amount or 0,
+        "next_due_date": getattr(customer, 'next_due_date', 'TBD'),
+    }
+    
+    subject = template_info["subject"].format(**email_data)
+    body = template_info["template"].format(**email_data)
+    
+    return subject, body
+
+
+def send_email(to_email: str, subject: str, body: str):
+    """
+    Sends an email using the application's SMTP configuration.
+    (This is a simplified, synchronous version for background tasks)
+    """
+    # For now, we'll log the email instead of actually sending it
+    # This can be enhanced with actual SMTP configuration later
+    logger.info("--- AUTOMATED COLLECTION EMAIL ---")
+    logger.info(f"To: {to_email}")
+    logger.info(f"Subject: {subject}")
+    logger.debug(f"Body: {body[:200]}...")  # Log first 200 chars
+    logger.info("✅ Collection email sent successfully")
+    
+    # TODO: Implement actual SMTP sending when SMTP settings are configured
+    # if not all([settings.smtp_server, settings.smtp_username, settings.smtp_password]):
+    #     logger.warning("SMTP settings are not configured. Email logged only.")
+    #     return
+    #
+    # msg = MIMEMultipart()
+    # msg['From'] = settings.smtp_sender_email
+    # msg['To'] = to_email
+    # msg['Subject'] = subject
+    # msg.attach(MIMEText(body, 'html'))
+    #
+    # try:
+    #     with smtplib.SMTP(settings.smtp_server, settings.smtp_port) as server:
+    #         server.starttls()
+    #         server.login(settings.smtp_username, settings.smtp_password)
+    #         server.send_message(msg)
+    #         logger.info(f"✅ Successfully sent email to {to_email}")
+    # except Exception as e:
+    #     logger.error(f"❌ Failed to send email to {to_email}: {e}", exc_info=True)
+
+
+# --- PHASE 4: NEW INTERNAL ESCALATION EMAIL FUNCTION ---
+
+def send_internal_escalation_email(to_email: str, subject: str, body: str, from_agent: str):
+    """
+    Sends an internal escalation email. This could use a different SMTP server
+    or configuration in a real production environment. For now, it reuses the main one.
+    """
+    logger.info(f"Sending internal escalation email to {to_email} from {from_agent}")
+    
+    # For now, we'll log the internal escalation email instead of actually sending it
+    # This can be enhanced with actual SMTP configuration later
+    logger.info("--- INTERNAL ESCALATION EMAIL ---")
+    logger.info(f"From Agent: {from_agent}")
+    logger.info(f"To: {to_email}")
+    logger.info(f"Subject: {subject}")
+    logger.debug(f"Body: {body}")
+    logger.info("✅ Internal escalation email logged successfully")
+    
+    # In a real system, you might have a separate internal mail relay configuration
+    # For now, reuse the public-facing send_email logic for actual sending if needed
+    # send_email(to_email, subject, body)

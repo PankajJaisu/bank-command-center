@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     smtp_sender_email: str = "pankajjaiswal@supervity.ai"
     app_domain: str = "supervity.ai"
 
+    # --- PHASE 3: AI POLICY AGENT CONFIGURATION ---
+    policy_agent_interval_minutes: float = 1.0  # Default to 1 minute for testing
+    # --- END PHASE 3 ---
+
     # --- Document Storage Configuration ---
     # Primary PDF storage path for uploaded and sample documents
     # Can be overridden by setting the PDF_STORAGE_PATH environment variable

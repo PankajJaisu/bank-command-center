@@ -394,6 +394,14 @@ class AutomationRuleBase(BaseModel):
     is_active: Union[bool, int] = True
     source: str = "user"
     
+    # --- PHASE 2: NEW FIELDS ---
+    rule_level: Optional[str] = None
+    segment: Optional[str] = None
+    customer_id: Optional[str] = None
+    source_document: Optional[str] = None
+    status: Optional[str] = "active"
+    # --- END PHASE 2 ---
+    
     @field_validator('conditions', mode='before')
     @classmethod
     def parse_conditions(cls, v):
@@ -521,8 +529,14 @@ class CustomerBase(BaseModel):
     cbs_due_day: Optional[int] = None
     cbs_last_payment_date: Optional[date] = None
     cbs_outstanding_amount: Optional[float] = None
-    cbs_risk_level: Optional[str] = None
     contract_note_id: Optional[int] = None
+    
+    # --- PHASE 1: NEW/UPDATED FIELDS ---
+    segment: Optional[str] = None
+    risk_level: Optional[str] = None
+    ai_suggested_action: Optional[str] = None
+    last_action_taken: Optional[str] = None
+    # --- END PHASE 1 ---
     
     # New fields from customer data spreadsheet
     cibil_score: Optional[int] = None
@@ -532,7 +546,6 @@ class CustomerBase(BaseModel):
     salary_last_date: Optional[date] = None
     pending_amount: Optional[float] = None
     pendency: Optional[str] = None
-    segment: Optional[str] = None
     emi_pending: Optional[int] = None  # Number of EMIs pending
 
 
