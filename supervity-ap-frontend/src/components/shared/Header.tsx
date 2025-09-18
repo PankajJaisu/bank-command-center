@@ -7,16 +7,14 @@ import { Button } from "../ui/Button";
 
 // This helper gets the title from the path for the header
 const getPageTitle = (path: string) => {
-  // Match the path to the labels in Sidebar.tsx
+  // Match the path to the labels in Sidebar.tsx - Collection Management focused
   const navMap: Record<string, string> = {
     "/dashboard": "Dashboard",
     "/data-center": "Data Center",
-    "/invoice-explorer": "Invoice Explorer",
+    "/collection-cell": "Collection Cell",
     "/resolution-workbench": "Resolution Workbench",
     "/ai-insights": "AI Insights",
     "/ai-policies": "AI Policies",
-    "/document-hub": "Document Hub",
-    "/style-guide": "Style Guide",
   };
 
   // Find a matching key that the path starts with
@@ -51,7 +49,7 @@ export const Header = () => {
               {currentUser.email}
             </span>
             <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-              {currentUser.role.name === "admin" ? "Admin" : "Processor"}
+              {currentUser.role.name === "admin" ? "Admin" : "Collection Agent"}
             </span>
           </div>
         )}

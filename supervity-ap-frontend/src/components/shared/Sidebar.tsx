@@ -7,14 +7,14 @@ import { cn } from "@/lib/utils";
 import { useAppContext } from "@/lib/AppContext"; // Import the context
 import {
   LayoutDashboard,
-  DatabaseZap, // New Icon for Data Center
-  ClipboardList, // New Icon for Invoice Manager
-  SlidersHorizontal, // New Icon for Configuration
-  Sparkles, // New Icon for Automation
-  CreditCard, // New Icon for Collection Cell
+  DatabaseZap, // Icon for Data Center
+  ClipboardList, // Icon for Resolution Workbench
+  SlidersHorizontal, // Icon for Configuration
+  Sparkles, // Icon for AI Insights
+  CreditCard, // Icon for Collection Cell
 } from "lucide-react";
 
-// New navigation structure (AI Bank Collection Manager integrated into header)
+// Bank Collection Management navigation structure
 const navItems = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/data-center", icon: DatabaseZap, label: "Data Center" },
