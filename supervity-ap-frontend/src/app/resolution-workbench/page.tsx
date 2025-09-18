@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
@@ -41,6 +42,7 @@ import { getCustomerSuggestion, sendSuggestionEmail, type AISuggestion } from "@
 // Type for escalated cases
 interface EscalatedCase {
   id: number;
+  customerId: number; // NEW: Customer ID for API calls
   customerNo: string;
   customerName: string;
   loanId: string;
@@ -48,7 +50,7 @@ interface EscalatedCase {
   escalatedBy: string;
   escalationReason: string;
   priority: "high" | "medium" | "low";
-  status: "new" | "in_progress" | "pending_legal" | "resolved";
+  status: "new" | "in_progress" | "pending_legal" | "resolved" | "processed";
   totalOutstanding: number;
   daysOverdue: number;
   assignedTo?: string;
@@ -67,6 +69,7 @@ const STATUS_COLORS = {
   in_progress: "bg-blue-100 text-blue-800",
   pending_legal: "bg-orange-100 text-orange-800",
   resolved: "bg-green-100 text-green-800",
+  processed: "bg-purple-100 text-purple-800",
 };
 
 const formatCurrency = (amount: number) => {
@@ -113,6 +116,7 @@ const calculateRiskAssessment = (cibilScore: number | null, riskLevel: string, d
 export default function ResolutionWorkbenchPage() {
   const [escalatedCases, setEscalatedCases] = useState<EscalatedCase[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
@@ -125,6 +129,8 @@ export default function ResolutionWorkbenchPage() {
   const [emailContent, setEmailContent] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [isCustomerDetailsModalOpen, setIsCustomerDetailsModalOpen] = useState(false);
+  const [selectedCustomerDetails, setSelectedCustomerDetails] = useState<EscalatedCase | null>(null);
 
   // Filter cases based on current filters
   const filteredCases = useMemo(() => {
@@ -152,11 +158,13 @@ export default function ResolutionWorkbenchPage() {
       
       console.log('=== Resolution Workbench Debug ===');
       console.log('Total accounts loaded:', accounts.length);
-      console.log('Accounts:', accounts.map(a => ({ 
+      console.log('Accounts with pendency info:', accounts.map(a => ({ 
         customerNo: a.customerNo, 
         name: a.customerName, 
         riskLevel: a.riskLevel,
-        cibilScore: a.cibilScore 
+        cibilScore: a.cibilScore,
+        pendency: a.pendency,
+        isProcessed: a.pendency && a.pendency.startsWith('PROCESSED_')
       })));
       
       // Convert accounts that need resolution based on Risk Assessment (MODERATE, HIGH RISK, CRITICAL)
@@ -167,11 +175,18 @@ export default function ResolutionWorkbenchPage() {
             account.riskLevel || 'red', 
             account.daysOverdue
           );
-          // Only include accounts that need resolution (exclude GOOD and EXCELLENT)
-          return assessment.level === 'MODERATE' || assessment.level === 'HIGH RISK' || assessment.level === 'CRITICAL';
+          
+          // Check if the account has been processed (has pendency starting with PROCESSED_)
+          const isProcessed = account.pendency && account.pendency.startsWith('PROCESSED_');
+          
+          // Only include accounts that need resolution (exclude GOOD, EXCELLENT, and already processed cases)
+          const needsResolution = assessment.level === 'MODERATE' || assessment.level === 'HIGH RISK' || assessment.level === 'CRITICAL';
+          
+          return needsResolution && !isProcessed;
         })
         .map(account => ({
           id: account.id,
+          customerId: account.customerId, // NEW: Map customer ID from loan account
           customerNo: account.customerNo,
           customerName: account.customerName,
           loanId: account.loanId,
@@ -179,7 +194,7 @@ export default function ResolutionWorkbenchPage() {
           escalatedBy: "System Auto",
           escalationReason: account.alertSummary || "High-risk customer requiring attention",
           priority: account.totalOutstanding > 50000 ? "high" : "medium" as "high" | "medium" | "low",
-          status: "new" as "new" | "in_progress" | "pending_legal" | "resolved",
+          status: "new" as "new" | "in_progress" | "pending_legal" | "resolved" | "processed",
           totalOutstanding: account.totalOutstanding,
           daysOverdue: account.daysOverdue,
           assignedTo: undefined,
@@ -191,11 +206,12 @@ export default function ResolutionWorkbenchPage() {
       
       console.log('Escalated cases created:', escalatedCases.length);
       console.log('Escalated cases:', escalatedCases);
+      console.log('Processed cases excluded:', accounts.filter(a => a.pendency && a.pendency.startsWith('PROCESSED_')).length);
       
       setEscalatedCases(escalatedCases);
       // Only show toast for empty cases, not for successful loads to reduce noise
       if (escalatedCases.length === 0) {
-        toast.error("No high-risk cases found. Please ensure customer data has been synced from Data Center.");
+        toast.error("No high-risk cases found.");
       }
     } catch (error: unknown) {
       console.error("Error loading escalated cases:", error);
@@ -229,7 +245,13 @@ export default function ResolutionWorkbenchPage() {
     ));
 
     try {
-      const suggestion = await getCustomerSuggestion(caseId);
+      // Find the case to get the customer ID
+      const targetCase = escalatedCases.find(c => c.id === caseId);
+      if (!targetCase) {
+        throw new Error("Case not found");
+      }
+      
+      const suggestion = await getCustomerSuggestion(targetCase.customerId);
       setEscalatedCases(prev => prev.map(c => 
         c.id === caseId ? { ...c, aiSuggestion: suggestion, isLoadingSuggestion: false } : c
       ));
@@ -266,8 +288,32 @@ export default function ResolutionWorkbenchPage() {
     }
 
     setSelectedCase(caseData);
-    setEmailSubject(caseData.aiSuggestion.suggestion.email_subject || `Payment Reminder - ${caseData.customerNo}`);
-    setEmailContent(caseData.aiSuggestion.suggestion.email_content || "");
+    // Generate proper collection agent subject and content for preview
+    setEmailSubject(`Collection Assignment - ${caseData.customerName} (${caseData.customerNo}) - ${caseData.priority.toUpperCase()} PRIORITY`);
+    setEmailContent(`Dear Collection Agent,
+
+You have been assigned a new collection case requiring immediate attention.
+
+CUSTOMER INFORMATION:
+• Name: ${caseData.customerName}
+• Customer No: ${caseData.customerNo}
+• Outstanding Amount: ₹${caseData.totalOutstanding.toLocaleString()}
+• Days Overdue: ${caseData.daysOverdue} days
+• Risk Level: ${caseData.riskLevel || 'Medium'}
+
+YOUR ASSIGNMENT:
+${caseData.aiSuggestion.suggestion.strategy}
+
+RECOMMENDED ACTION:
+${caseData.aiSuggestion.suggestion.recommended_action}
+
+ACTION STEPS:
+${caseData.aiSuggestion.suggestion.specific_action_steps?.map((step: string, idx: number) => `${idx + 1}. ${step}`).join('\n') || '1. Contact customer to discuss payment options\n2. Document conversation outcome\n3. Schedule follow-up if needed'}
+
+Please handle this case within the suggested timeline: ${caseData.aiSuggestion.suggestion.suggested_timeline}
+
+Best regards,
+Collections Management System`);
     setActionType(actionType);
     setIsEmailModalOpen(true);
   };
@@ -279,20 +325,34 @@ export default function ResolutionWorkbenchPage() {
     setIsSendingEmail(true);
     try {
       await sendSuggestionEmail(
-        selectedCase.id,
+        selectedCase.customerId,
         actionType,
         emailContent
       );
       
-      toast.success("Email sent successfully!");
+      toast.success(`Collection ticket sent successfully! Case for ${selectedCase.customerName} removed from workbench and moved to Processed tab.`);
       setIsEmailModalOpen(false);
       
-      // Update case status
-      setEscalatedCases(prev => prev.map(c => 
-        c.id === selectedCase.id 
-          ? { ...c, status: "in_progress", lastAction: `Email sent: ${actionType}`, lastActionDate: new Date().toISOString() }
-          : c
-      ));
+      // Add a brief delay to show the success message before removing the case
+      setTimeout(() => {
+        // Remove the processed case from the workbench
+        setEscalatedCases(prev => prev.filter(c => c.id !== selectedCase.id));
+        
+        // Clear the selected case and remove from expanded cases
+        setSelectedCase(null);
+        setExpandedCases(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(selectedCase.id);
+          return newSet;
+        });
+      }, 500);
+      
+      // Optionally navigate to Collection Cell after a short delay
+      setTimeout(() => {
+        if (confirm("Would you like to view the processed case in Collection Cell?")) {
+          router.push("/collection-cell?tab=processed");
+        }
+      }, 1500);
     } catch (error: unknown) {
       console.error("Error sending email:", error);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -307,6 +367,11 @@ export default function ResolutionWorkbenchPage() {
     setActionType(action);
     setActionNote("");
     setIsActionModalOpen(true);
+  };
+
+  const handleRowClick = (escalatedCase: EscalatedCase) => {
+    setSelectedCustomerDetails(escalatedCase);
+    setIsCustomerDetailsModalOpen(true);
   };
 
 
@@ -358,6 +423,9 @@ export default function ResolutionWorkbenchPage() {
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
               <Scale className="h-8 w-8 text-orange-600" />
               Resolution Workbench
+              <Badge className="bg-orange-100 text-orange-800 text-sm">
+                {filteredCases.length} cases
+              </Badge>
             </h1>
             <p className="text-gray-600 mt-1">Manage escalated loan collection cases requiring legal or senior management review</p>
           </div>
@@ -534,7 +602,15 @@ export default function ResolutionWorkbenchPage() {
                   ) : (
                     filteredCases.map((escalatedCase) => (
                       <React.Fragment key={escalatedCase.id}>
-                        <TableRow className="hover:bg-gray-50">
+                        <TableRow 
+                          className="hover:bg-gray-50 cursor-pointer"
+                          onClick={(e) => {
+                            // Only handle row click if not clicking on buttons
+                            if (!(e.target as HTMLElement).closest('button')) {
+                              handleRowClick(escalatedCase);
+                            }
+                          }}
+                        >
                           <TableCell className="font-medium">
                             <div>
                               <div className="truncate text-sm font-medium" style={{ maxWidth: '180px' }}>
@@ -640,9 +716,6 @@ export default function ResolutionWorkbenchPage() {
                                 <div className="flex items-center gap-2">
                                   <MessageSquare className="h-4 w-4 text-blue-600" />
                                   <span className="font-medium text-blue-900">AI Recommendation</span>
-                                  <Badge className="bg-blue-100 text-blue-800 text-xs">
-                                    {Math.round(escalatedCase.aiSuggestion.confidence_score * 100)}% confidence
-                                  </Badge>
                                 </div>
                                 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -657,35 +730,44 @@ export default function ResolutionWorkbenchPage() {
                                   </div>
                                 </div>
                                 
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                   <div>
                                     <h4 className="text-sm font-medium text-gray-900 mb-1">Timeline</h4>
                                     <p className="text-sm text-gray-600">{escalatedCase.aiSuggestion.suggestion.suggested_timeline}</p>
                                   </div>
                                   
                                   <div>
-                                    <h4 className="text-sm font-medium text-gray-900 mb-1">Success Probability</h4>
-                                    <p className="text-sm text-gray-600">{escalatedCase.aiSuggestion.suggestion.success_probability}</p>
+                                    <h4 className="text-sm font-medium text-gray-900 mb-1">Priority Level</h4>
+                                    <Badge className={`text-xs ${
+                                      escalatedCase.aiSuggestion.suggestion.priority_level === 'high' ? 'bg-red-100 text-red-800' :
+                                      escalatedCase.aiSuggestion.suggestion.priority_level === 'medium' ? 'bg-amber-100 text-amber-800' :
+                                      'bg-green-100 text-green-800'
+                                    }`}>
+                                      {escalatedCase.aiSuggestion.suggestion.priority_level.toUpperCase()}
+                                    </Badge>
                                   </div>
                                   
-                                  <div>
-                                    <h4 className="text-sm font-medium text-gray-900 mb-1">Alternative Actions</h4>
-                                    <div className="flex flex-wrap gap-1">
-                                      {escalatedCase.aiSuggestion.suggestion.alternative_actions?.map((action, idx) => (
-                                        <Badge key={idx} className="bg-gray-100 text-gray-700 text-xs">
-                                          {action}
-                                        </Badge>
-                                      ))}
+                                  {escalatedCase.aiSuggestion.suggestion.applied_rule && (
+                                    <div>
+                                      <h4 className="text-sm font-medium text-gray-900 mb-1">Applied Rule</h4>
+                                      <Badge className="text-xs bg-blue-100 text-blue-800">
+                                        {escalatedCase.aiSuggestion.suggestion.applied_rule}
+                                      </Badge>
                                     </div>
-                                  </div>
+                                  )}
                                 </div>
                                 
-                                {escalatedCase.aiSuggestion.suggestion.notes && (
+                                {escalatedCase.aiSuggestion.suggestion.specific_action_steps && (
                                   <div>
-                                    <h4 className="text-sm font-medium text-gray-900 mb-1">Additional Notes</h4>
-                                    <p className="text-sm text-gray-600">{escalatedCase.aiSuggestion.suggestion.notes}</p>
+                                    <h4 className="text-sm font-medium text-gray-900 mb-2">Action Steps</h4>
+                                    <ol className="list-decimal list-inside space-y-1">
+                                      {escalatedCase.aiSuggestion.suggestion.specific_action_steps.map((step: string, idx: number) => (
+                                        <li key={idx} className="text-sm text-gray-700">{step}</li>
+                                      ))}
+                                    </ol>
                                   </div>
                                 )}
+                                
                                 
                                 <div className="flex gap-2 pt-2">
                                   <Button
@@ -695,21 +777,8 @@ export default function ResolutionWorkbenchPage() {
                                     className="text-xs"
                                   >
                                     <Mail className="h-3 w-3 mr-1" />
-                                    Send AI-Generated Email
+                                    Send Collection Ticket: {escalatedCase.aiSuggestion.suggestion.recommended_action}
                                   </Button>
-                                  
-                                  {escalatedCase.aiSuggestion.suggestion.alternative_actions?.map((action, idx) => (
-                                    <Button
-                                      key={idx}
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() => handleSendEmail(escalatedCase, action)}
-                                      className="text-xs"
-                                    >
-                                      <Mail className="h-3 w-3 mr-1" />
-                                      {action}
-                                    </Button>
-                                  ))}
                                 </div>
                               </div>
                             </TableCell>
@@ -789,12 +858,20 @@ export default function ResolutionWorkbenchPage() {
         <Modal
           isOpen={isEmailModalOpen}
           onClose={() => setIsEmailModalOpen(false)}
-          title="Send AI-Generated Email"
+          title="Send Collection Ticket to Agent"
         >
           <div className="space-y-4">
+            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+              <h4 className="font-medium text-blue-900 mb-2">📧 Recipient: Collection Agent</h4>
+              <div className="text-sm text-blue-700">
+                <div><span className="font-medium">To:</span> work.pankaj21@gmail.com</div>
+                <div><span className="font-medium">Type:</span> Collection Ticket</div>
+              </div>
+            </div>
+            
             {selectedCase && (
               <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="font-medium text-gray-900 mb-2">Customer Details</h4>
+                <h4 className="font-medium text-gray-900 mb-2">Customer Case Details</h4>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
                     <span className="text-gray-500">Customer:</span> {selectedCase.customerName}
@@ -806,7 +883,7 @@ export default function ResolutionWorkbenchPage() {
                     <span className="text-gray-500">Outstanding:</span> {formatCurrency(selectedCase.totalOutstanding)}
                   </div>
                   <div>
-                    <span className="text-gray-500">Action:</span> {actionType}
+                    <span className="text-gray-500">Recommended Action:</span> {actionType}
                   </div>
                 </div>
               </div>
@@ -814,25 +891,25 @@ export default function ResolutionWorkbenchPage() {
             
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email Subject
+                Ticket Subject
               </label>
               <input
                 type="text"
                 value={emailSubject}
                 onChange={(e) => setEmailSubject(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Email subject..."
+                placeholder="Collection ticket subject..."
               />
             </div>
             
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email Content
+                Ticket Content
               </label>
               <textarea
                 value={emailContent}
                 onChange={(e) => setEmailContent(e.target.value)}
-                placeholder="AI-generated email content will appear here..."
+                placeholder="AI-generated collection ticket content will appear here..."
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 rows={8}
               />
@@ -859,14 +936,114 @@ export default function ResolutionWorkbenchPage() {
                 ) : (
                   <>
                     <Mail className="h-4 w-4 mr-2" />
-                    Send Email
+                    Send Collection Ticket
                   </>
                 )}
               </Button>
             </div>
           </div>
         </Modal>
+
+        {/* Customer Details Modal */}
+        <Modal
+          isOpen={isCustomerDetailsModalOpen}
+          onClose={() => setIsCustomerDetailsModalOpen(false)}
+          title="Customer Details"
+        >
+          <div className="space-y-4">
+            {selectedCustomerDetails && (
+              <>
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h4 className="font-medium text-gray-900 mb-3">Customer Information</h4>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <span className="text-gray-500">Name:</span>
+                      <div className="font-medium">{selectedCustomerDetails.customerName}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Customer No:</span>
+                      <div className="font-medium">{selectedCustomerDetails.customerNo}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Loan ID:</span>
+                      <div className="font-medium">{selectedCustomerDetails.loanId}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Status:</span>
+                      <Badge className={`${STATUS_COLORS[selectedCustomerDetails.status]} text-xs`}>
+                        {selectedCustomerDetails.status.replace(/_/g, " ")}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <h4 className="font-medium text-blue-900 mb-3">Financial Details</h4>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <span className="text-blue-700">Total Outstanding:</span>
+                      <div className="font-medium text-blue-900">{formatCurrency(selectedCustomerDetails.totalOutstanding)}</div>
+                    </div>
+                    <div>
+                      <span className="text-blue-700">Days Overdue:</span>
+                      <div className="font-medium text-blue-900">{selectedCustomerDetails.daysOverdue} days</div>
+                    </div>
+                    <div>
+                      <span className="text-blue-700">CIBIL Score:</span>
+                      <div className="font-medium text-blue-900">{selectedCustomerDetails.cibilScore || 'N/A'}</div>
+                    </div>
+                    <div>
+                      <span className="text-blue-700">Risk Level:</span>
+                      <div className="font-medium text-blue-900">{selectedCustomerDetails.riskLevel?.toUpperCase() || 'N/A'}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-amber-50 p-4 rounded-lg">
+                  <h4 className="font-medium text-amber-900 mb-3">Risk Assessment</h4>
+                  <div className="text-sm">
+                    {(() => {
+                      const assessment = calculateRiskAssessment(
+                        selectedCustomerDetails.cibilScore || null, 
+                        selectedCustomerDetails.riskLevel || 'red', 
+                        selectedCustomerDetails.daysOverdue
+                      );
+                      return (
+                        <div className="flex items-center gap-2">
+                          <span className={cn("text-xs font-bold px-2 py-1 rounded uppercase tracking-wide", assessment.color)}>
+                            {assessment.level}
+                          </span>
+                          <span className="text-amber-700">
+                            Based on CIBIL score, risk level, and overdue days
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-4">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setIsCustomerDetailsModalOpen(false)}
+                  >
+                    Close
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      setIsCustomerDetailsModalOpen(false);
+                      handleActionClick(selectedCustomerDetails, "resolve");
+                    }}
+                  >
+                    Take Action
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </Modal>
       </div>
-        </div>
+    </div>
   );
 }

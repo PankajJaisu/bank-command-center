@@ -59,7 +59,7 @@ const getMockCustomerDetails = (customerNo: string) => ({
   
   // Customer Information
   customerInfo: {
-    email: "john.smith@email.com",
+    email: "panku526154@gmail.com",
     phone: "+1-555-0123",
     address: "123 Main St, Springfield, IL",
     employmentStatus: "Employed",
@@ -677,24 +677,7 @@ export default function CustomerProfilePage() {
     loadCustomerData();
   }, [loadCustomerData]);
 
-  // Auto-navigate to matched invoices when Overall Risk Assessment is GOOD
-  useEffect(() => {
-    if (!isLoading && customerData) {
-      const assessment = calculateRiskAssessment(
-        customerData.customerInfo?.creditScore || null, 
-        customerData.riskLevel, 
-        customerData.loanDetails?.daysOverdue || 0
-      );
-      
-      if (assessment.level === 'GOOD') {
-        // Show notification and redirect to invoice explorer with matched filter
-        toast.success(`Customer ${customerData.customerName} has GOOD risk assessment. Redirecting to matched invoices...`);
-        setTimeout(() => {
-          router.push('/invoice-explorer?status=matched');
-        }, 2000);
-      }
-    }
-  }, [isLoading, customerData, router]);
+  // Removed automatic redirect logic - customers should stay on their detail page regardless of risk assessment
 
   // Get available actions based on risk level
   const getAvailableActions = (riskLevel: string) => {

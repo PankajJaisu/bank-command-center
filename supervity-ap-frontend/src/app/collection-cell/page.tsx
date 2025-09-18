@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
@@ -97,6 +97,7 @@ const mockLoanAccounts: LoanAccount[] = [
     pendingAmount: 1500.00,
     emi_pending: 2,
     segment: "Premium",
+    pendency: null,
   },
   {
     id: 2,
@@ -130,6 +131,7 @@ const mockLoanAccounts: LoanAccount[] = [
     pendingAmount: 5000.00,
     emi_pending: 1,
     segment: "Corporate",
+    pendency: null,
   },
   {
     id: 3,
@@ -163,6 +165,7 @@ const mockLoanAccounts: LoanAccount[] = [
     pendingAmount: 3000.00,
     emi_pending: 3,
     segment: "Retail",
+    pendency: null,
   },
   {
     id: 4,
@@ -196,6 +199,7 @@ const mockLoanAccounts: LoanAccount[] = [
     pendingAmount: 2000.00,
     emi_pending: 0,
     segment: "SME",
+    pendency: null,
   }
 ];
 
@@ -307,6 +311,7 @@ const calculateRiskAssessment = (cibilScore: number | null, riskLevel: string, d
 
 export default function CollectionCellPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   
   // State management
   const [loanAccounts, setLoanAccounts] = useState<LoanAccount[]>([]);
@@ -324,6 +329,14 @@ export default function CollectionCellPage() {
   
   // Tab states
   const [activeTab, setActiveTab] = useState<"collection" | "processed">("collection");
+  
+  // Check URL parameters for tab selection
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'processed') {
+      setActiveTab('processed');
+    }
+  }, [searchParams]);
   
   // Modal states
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
@@ -356,8 +369,11 @@ export default function CollectionCellPage() {
       const matchesRiskLevel = !riskLevelFilter || account.riskLevel === riskLevelFilter;
       
       // Filter by tab - processed tab shows accounts with GOOD or EXCELLENT risk assessment (AI-processed low priority cases)
+      // OR accounts that have been manually processed via collection tickets
       const assessment = calculateRiskAssessment(account.cibilScore, account.riskLevel, account.daysOverdue);
-      const isProcessed = assessment.level === 'GOOD' || assessment.level === 'EXCELLENT';
+      const isLowRiskProcessed = assessment.level === 'GOOD' || assessment.level === 'EXCELLENT';
+      const isManuallyProcessed = (account as any).pendency && (account as any).pendency.startsWith('PROCESSED_');
+      const isProcessed = isLowRiskProcessed || isManuallyProcessed;
       
       if (activeTab === "processed") {
         return matchesSearch && matchesStatus && matchesCollector && matchesOverdue && matchesRiskLevel && isProcessed;
@@ -572,6 +588,7 @@ export default function CollectionCellPage() {
   };
 
   const handleRowClick = (account: LoanAccount) => {
+    // Navigate to complete customer detail page
     router.push(`/collection-cell/customer/${account.customerNo}`);
   };
 
@@ -664,64 +681,11 @@ export default function CollectionCellPage() {
               >
                 Processed ({loanAccounts.filter(account => {
                   const assessment = calculateRiskAssessment(account.cibilScore, account.riskLevel, account.daysOverdue);
-                  return assessment.level === 'GOOD' || assessment.level === 'EXCELLENT';
+                  const isLowRiskProcessed = assessment.level === 'GOOD' || assessment.level === 'EXCELLENT';
+                  const isManuallyProcessed = (account as any).pendency && (account as any).pendency.startsWith('PROCESSED_');
+                  return isLowRiskProcessed || isManuallyProcessed;
                 }).length})
               </Button>
-            </div>
-            <div className="flex items-center gap-2">
-              {activeTab === "processed" && (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => {
-                    const matchedCount = filteredAccounts.length;
-                    toast.success(`${matchedCount} matched accounts sent for bank reconciliation processing`);
-                  }}
-                  disabled={filteredAccounts.length === 0}
-                  className="text-xs"
-                >
-                  Send to Bank Reconciliation
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={loadData}
-                disabled={isLoading}
-                className="text-xs"
-                title="Refresh Customer Data"
-              >
-                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-                Refresh
-              </Button>
-              <div className="flex items-center gap-2">
-                {schedulerStatus && (
-                  <div className="flex items-center gap-2 px-3 py-1 bg-gray-50 rounded-md border">
-                    <div className={`w-2 h-2 rounded-full ${schedulerStatus.scheduler_running ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
-                    <span className="text-xs text-gray-600">
-                      {schedulerStatus.scheduler_running 
-                        ? `Auto-Policy: Every ${schedulerStatus.interval_minutes === 0.5 ? '30sec' : schedulerStatus.interval_minutes + 'min'}`
-                        : 'Auto-Policy: Stopped'
-                      }
-                    </span>
-                  </div>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={runPolicyAgent}
-                  disabled={isPolicyAgentRunning}
-                  className="text-xs"
-                  title="Manually run AI Policy Agent now"
-                >
-                  {isPolicyAgentRunning ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Bot className="h-4 w-4" />
-                  )}
-                  {isPolicyAgentRunning ? "Running..." : "Run Now"}
-                </Button>
-              </div>
             </div>
           </div>
         </CardHeader>

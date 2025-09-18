@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
+from datetime import datetime
 
 from app.api.dependencies import get_db
 from app.db import models
@@ -96,10 +97,9 @@ async def send_suggestion_email(
         if not customer:
             raise HTTPException(status_code=404, detail="Customer not found")
         
-        # Use provided email or customer's email
-        recipient_email = request.recipient_email or customer.email
-        if not recipient_email:
-            raise HTTPException(status_code=400, detail="No email address available for customer")
+        # Send to collection agent instead of customer
+        collection_agent_email = "work.pankaj21@gmail.com"  # Fixed: removed spaces and invalid characters
+        recipient_email = request.recipient_email or collection_agent_email
         
         # Generate email content
         suggestion_service = AISuggestionService(db)
@@ -123,11 +123,24 @@ async def send_suggestion_email(
             customer_name=customer.name
         )
         
+        # Mark customer as processed after sending email
+        try:
+            # Update customer with collection action timestamp
+            # We'll use the existing 'pendency' field to mark as processed
+            processed_timestamp = f"PROCESSED_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+            customer.pendency = processed_timestamp
+            db.commit()
+            logger.info(f"✅ Customer {customer.customer_no} ({customer.name}) marked as processed with timestamp: {processed_timestamp}")
+            logger.info(f"✅ Customer ID: {customer.id}, Customer No: {customer.customer_no}")
+        except Exception as e:
+            logger.error(f"❌ Could not update customer collection status: {str(e)}")
+            logger.error(f"❌ Customer details: ID={customer.id}, No={customer.customer_no}, Name={customer.name}")
+        
         # Log the action
-        logger.info(f"Email queued for customer {customer.customer_no} ({customer.name}) to {recipient_email}")
+        logger.info(f"Collection ticket queued for customer {customer.customer_no} ({customer.name}) to {recipient_email}")
         
         return {
-            "message": "Email queued for sending",
+            "message": "Collection ticket queued for sending",
             "customer_id": request.customer_id,
             "recipient_email": recipient_email,
             "action_type": request.action_type,

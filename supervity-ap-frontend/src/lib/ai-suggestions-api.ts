@@ -15,14 +15,10 @@ export const AISuggestionSchema = z.object({
     strategy: z.string(),
     priority_level: z.enum(["high", "medium", "low"]),
     suggested_timeline: z.string(),
-    email_subject: z.string().optional(),
-    email_content: z.string().optional(),
-    alternative_actions: z.array(z.string()).optional(),
-    success_probability: z.string().optional(),
-    notes: z.string().optional(),
+    specific_action_steps: z.array(z.string()).optional(),
+    applied_rule: z.string().optional(),
   }),
   generated_at: z.string(),
-  confidence_score: z.number(),
 });
 
 export const EmailContentSchema = z.object({
