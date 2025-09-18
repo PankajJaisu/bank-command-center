@@ -87,6 +87,9 @@ class User(Base):
 
     # New policy-based permission system
     permission_policies = relationship("PermissionPolicy", cascade="all, delete-orphan")
+    
+    # Policy documents uploaded by this user
+    uploaded_policies = relationship("PolicyDocument", back_populates="uploader")
 
 
 # --- END NEW MODELS ---
@@ -577,5 +580,46 @@ class Comment(Base):
     type = Column(String, default="internal")
     invoice = relationship("Invoice", back_populates="comments")
 
+
+class PolicyDocument(Base):
+    """Model for storing uploaded policy documents."""
+    __tablename__ = "policy_documents"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    type = Column(String, nullable=False, default="collection")  # collection, repossession, etc.
+    description = Column(Text)
+    filename = Column(String, nullable=False)
+    content = Column(Text, nullable=False)  # Full text content of the policy
+    rules_generated = Column(Integer, default=0)  # Number of rules generated from this policy
+    uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    uploader = relationship("User", back_populates="uploaded_policies")
+
+
+class CollectionRule(Base):
+    """Model for storing AI-generated collection rules from policy documents."""
+    __tablename__ = "collection_rules"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    rule_name = Column(String, nullable=False)
+    rule_type = Column(String, nullable=False, default="collection")  # collection, escalation, etc.
+    conditions = Column(Text, nullable=False)  # JSON string of conditions
+    actions = Column(Text, nullable=False)  # JSON string of actions
+    priority = Column(String, default="medium")  # low, medium, high
+    is_active = Column(Boolean, default=True)
+    description = Column(Text)
+    success_rate = Column(String)  # Estimated success rate
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_used = Column(DateTime)  # When this rule was last applied
+    usage_count = Column(Integer, default=0)  # How many times this rule has been used
+    policy_document_id = Column(Integer, ForeignKey("policy_documents.id"))  # Link to source policy
+    
+    # Relationships
+    policy_document = relationship("PolicyDocument")
 
 

@@ -37,6 +37,7 @@ export const LoanAccountSchema = z.object({
   pendingAmount: z.number().nullable().transform(val => val ?? null),
   emi_pending: z.number().nullable().optional().transform(val => val ?? 0),
   segment: z.string().nullable().optional().transform(val => val ?? "Retail"),
+  pendency: z.string().nullable().optional().transform(val => val ?? null),
 });
 
 export const CollectionKPIsSchema = z.object({

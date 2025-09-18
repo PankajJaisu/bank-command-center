@@ -496,6 +496,7 @@ def get_loan_accounts_with_contracts(
             models.Customer.pending_amount,  # Add pending_amount field
             models.Customer.emi_pending,  # Add emi_pending field
             models.Customer.segment,  # Add segment field
+            models.Customer.pendency,  # Add pendency field for processed status
             models.Loan.loan_id,
             models.Loan.emi_amount,
             models.Loan.outstanding_amount,
@@ -565,6 +566,7 @@ def get_loan_accounts_with_contracts(
             "contractFilePath": result.contract_file_path,
             # Customer additional info
             "cibilScore": int(result.cibil_score) if result.cibil_score is not None else None,
+            "pendency": result.pendency,  # Add pendency field for processed status tracking
         })
     
     return loan_accounts

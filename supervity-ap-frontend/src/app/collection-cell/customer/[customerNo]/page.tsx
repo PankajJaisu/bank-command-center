@@ -59,7 +59,7 @@ const getMockCustomerDetails = (customerNo: string) => ({
   
   // Customer Information
   customerInfo: {
-    email: "john.smith@email.com",
+    email: "panku526154@gmail.com",
     phone: "+1-555-0123",
     address: "123 Main St, Springfield, IL",
     employmentStatus: "Employed",
@@ -677,20 +677,7 @@ export default function CustomerProfilePage() {
     loadCustomerData();
   }, [loadCustomerData]);
 
-  // Show notification for GOOD risk assessment customers
-  useEffect(() => {
-    if (!isLoading && customerData) {
-      const assessment = calculateRiskAssessment(
-        customerData.customerInfo?.creditScore || null, 
-        customerData.riskLevel, 
-        customerData.loanDetails?.daysOverdue || 0
-      );
-      
-      if (assessment.level === 'GOOD') {
-        toast.success(`Customer ${customerData.customerName} has GOOD risk assessment. Account is in good standing.`);
-      }
-    }
-  }, [isLoading, customerData]);
+  // Removed automatic redirect logic - customers should stay on their detail page regardless of risk assessment
 
   // Get available actions based on risk level
   const getAvailableActions = (riskLevel: string) => {
